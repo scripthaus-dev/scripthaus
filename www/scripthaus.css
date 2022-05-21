@@ -167,7 +167,7 @@ br.mobile {
 }
 
 .middle-content .message {
-    width: 60%;
+    width: 50%;
 }
 
 .message.is-sc-green .message-header {
@@ -175,7 +175,7 @@ br.mobile {
 }
 
 .middle-content .osi-logo {
-    width: 40%;
+    width: 50%;
     display: flex;
     justify-content: center;
     align-items: center;

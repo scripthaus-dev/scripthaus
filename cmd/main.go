@@ -97,10 +97,10 @@ List Options:
 		fmt.Printf("The version command has no options \U0001f643\n\n")
 	} else if subHelpCommand == "overview" {
 		fmt.Printf(`
-ScriptHaus is a command line tool that helps you organize your scripts and bash 1-liners
+ScriptHaus is a command line tool that helps you organize your scripts and bash one-liners
 into self-documenting markdown files.
 
-* Stay Organized - Store your bash 1-liners in a simple markdown file
+* Stay Organized - Store your bash one-liners in a simple markdown file
 * Save Commands - Easily save a command from history to run or view later
 * Never Forget - Store history by command, including options, date, cwd, and exitcode
 * Share - Save your files in github and share them with your team
