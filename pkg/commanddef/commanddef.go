@@ -107,6 +107,26 @@ func makeOsFileFromString(s string) (*os.File, error) {
 	return reader, nil
 }
 
+func ValidScriptTypes() []string {
+	return []string{"sh", "bash", "python", "python2", "python3", "js", "node"}
+}
+
+func IsValidScriptType(scriptType string) bool {
+	switch scriptType {
+	case "sh", "bash":
+		return true
+
+	case "python", "python2", "python3":
+		return true
+
+	case "js", "node":
+		return true
+
+	default:
+		return false
+	}
+}
+
 func (cdef *CommandDef) buildNormalCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (string, *exec.Cmd, error) {
 	if cdef.Lang == "sh" || cdef.Lang == "bash" {
 		args := append([]string{"-c", cdef.ScriptText, fullScriptName}, runSpec.ScriptArgs...)

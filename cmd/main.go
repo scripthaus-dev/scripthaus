@@ -7,8 +7,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -44,6 +46,8 @@ func runHelpCommand(gopts globalOpts, showVersion bool) {
 		fmt.Printf("\n%s\n\n", helptext.ListText)
 	} else if subHelpCommand == "show" {
 		fmt.Printf("\n%s\n\n", helptext.ShowText)
+	} else if subHelpCommand == "add" {
+		fmt.Printf("\n%s\n\n", helptext.AddText)
 	} else if subHelpCommand == "version" {
 		fmt.Printf("\n%s\n\n", helptext.VersionText)
 	} else if subHelpCommand == "overview" {
@@ -163,6 +167,9 @@ func resolveScript(cmdName string, scriptName string, curPlaybookFile string) (c
 		if strings.Index(scriptName, "/") != -1 {
 			return emptyRtn, fmt.Errorf("invalid script '%s', no slash allowed when --playbook '%s' is specified", scriptName, curPlaybookFile)
 		}
+		if !mdparser.IsValidScriptName(scriptName) {
+			return emptyRtn, fmt.Errorf("invalid characters in playbook script name '%s'", scriptName)
+		}
 		return commanddef.ScriptDef{PlaybookFile: curPlaybookFile, PlaybookScript: scriptName}, nil
 	}
 	if strings.HasSuffix(scriptName, "/") {
@@ -175,9 +182,15 @@ func resolveScript(cmdName string, scriptName string, curPlaybookFile string) (c
 		dirName, baseName := path.Split(scriptName)
 		dirFile := dirName[:len(dirName)-1]
 		if dirFile == "-" {
+			if !mdparser.IsValidScriptName(baseName) {
+				return emptyRtn, fmt.Errorf("invalid characters in playbook script name '%s'", baseName)
+			}
 			return commanddef.ScriptDef{PlaybookFile: "-", PlaybookScript: baseName}, nil
 		} else if path.Ext(dirFile) == ".md" {
 			// an ".md" file as a directory means this is a playbook
+			if !mdparser.IsValidScriptName(baseName) {
+				return emptyRtn, fmt.Errorf("invalid characters in playbook script name '%s'", baseName)
+			}
 			return commanddef.ScriptDef{PlaybookFile: dirFile, PlaybookScript: baseName}, nil
 		} else {
 			// "directory" is not a .md file.  So scriptName must be a standalone ScriptFile
@@ -383,22 +396,170 @@ func runShowCommand(gopts globalOpts) (int, error) {
 }
 
 type addOptsType struct {
-	FullScriptName string
-	PlaybookFile   string
-	PlaybookScript string
+	Script     commanddef.ScriptDef
+	ScriptType string
+	ScriptText string
+	Message    string
+	DryRun     bool
 }
 
 func parseAddOpts(opts globalOpts) (addOptsType, error) {
 	var rtn addOptsType
+	var err error
+	iter := &OptsIter{Opts: opts.CommandArgs}
+	for iter.HasNext() {
+		argStr := iter.Next()
+		if argStr == "-p" || argStr == "--playbook" {
+			if !iter.HasNext() {
+				return rtn, fmt.Errorf("'%s [playbook]' missing playbook name", argStr)
+			}
+			rtn.Script.PlaybookFile = iter.Next()
+			continue
+		}
+		if argStr == "-t" || argStr == "--type" {
+			if !iter.HasNext() {
+				return rtn, fmt.Errorf("'%s [type]' missing script type", argStr)
+			}
+			rtn.ScriptType = iter.Next()
+			continue
+		}
+		if argStr == "-m" || argStr == "--message" {
+			if !iter.HasNext() {
+				return rtn, fmt.Errorf("'%s [message]' missing message", argStr)
+			}
+			rtn.Message = iter.Next()
+			continue
+		}
+		if argStr == "-c" {
+			if !iter.HasNext() {
+				return rtn, fmt.Errorf("'%s [script-text]' missing script text", argStr)
+			}
+			rtn.ScriptText = iter.Next()
+			continue
+		}
+		if argStr == "-" {
+			rtn.ScriptText = "-" // stdin
+			continue
+		}
+		if argStr == "--dry-run" {
+			rtn.DryRun = true
+			continue
+		}
+		if argStr == "--" {
+			rtn.ScriptText = strings.Join(iter.Rest(), " ")
+			break
+		}
+		if isOption(argStr) {
+			return rtn, fmt.Errorf("invalid option '%s' passed to scripthaus show command", argStr)
+		}
+		rtn.Script, err = resolveScript("add", argStr, rtn.Script.PlaybookFile)
+		if err != nil {
+			return rtn, err
+		}
+		if rtn.Script.ScriptFile != "" {
+			return rtn, fmt.Errorf("invalid playbook file '%s' specified (make sure it is a playbook '.md' file)", argStr)
+		}
+	}
+	if rtn.Script.PlaybookFile == "" {
+		return rtn, fmt.Errorf("No playbook/script passed to 'add' command.  Usage: scripthaus add [opts] [playbook]/[script]")
+	}
+	if rtn.ScriptText == "" {
+		return rtn, fmt.Errorf("No script text passed to 'add' command.  Use '-c [script-text]', '--' for rest of arguments, or '-' for stdin")
+	}
 	return rtn, nil
 }
 
-func runAddCommand(gopts globalOpts) (int, error) {
-	_, err := parseAddOpts(gopts)
+func runAddCommand(gopts globalOpts) (errCode int, errRtn error) {
+	addOpts, err := parseAddOpts(gopts)
 	if err != nil {
 		return 1, err
 	}
+	var realScriptText string
+	if addOpts.ScriptText == "-" {
+		scriptTextBytes, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return 1, fmt.Errorf("reading from <stdin>: %w", err)
+		}
+		if len(scriptTextBytes) == 0 {
+			return 1, fmt.Errorf("reading script-text from <stdin>, but got empty string", err)
+		}
+		realScriptText = string(scriptTextBytes)
+	} else {
+		realScriptText = addOpts.ScriptText
+	}
+	if len(realScriptText) > 5000 {
+		return 1, fmt.Errorf("script-text too long, max-size for add is 5k (edit the file manually if this was not a mistake)")
+	}
+	if strings.Index(realScriptText, "```") != -1 {
+		return 1, fmt.Errorf("script-text cannot contain the the markdown code fence characters \"```\", this block must be added to the .md file manually")
+	}
+	if addOpts.Script.PlaybookFile == "-" || addOpts.Script.PlaybookFile == "<stdin>" {
+		return 1, fmt.Errorf("playbook file cannot be '-' (<stdin>) for 'add' command")
+	}
+	if addOpts.ScriptType == "" {
+		return 1, fmt.Errorf("must specify a script-type using '-t'")
+	}
+	if !commanddef.IsValidScriptType(addOpts.ScriptType) {
+		return 1, fmt.Errorf("must specify a valid script type ('%s' is not valid), must be one of: %s", addOpts.ScriptType, strings.Join(commanddef.ValidScriptTypes(), ", "))
+	}
+	resolvedFileName, err := pathutil.ResolveFileWithPath(addOpts.Script.PlaybookFile, "playbook")
+	if err != nil {
+		return 1, err
+	}
+	cmdDefs, err := readCommandsFromFile(resolvedFileName)
+	if err != nil {
+		return 1, err
+	}
+	for _, def := range cmdDefs {
+		if def.Name == addOpts.Script.PlaybookScript {
+			return 1, fmt.Errorf("script with name '%s' already exists in playbook file '%s'", addOpts.Script.PlaybookScript, resolvedFileName)
+		}
+	}
+	var buf bytes.Buffer
+	fmt.Printf("[^scripthaus] adding command '%s' to %s:\n", addOpts.Script.PlaybookScript, resolvedFileName)
+	buf.WriteString(fmt.Sprintf("#### `%s`\n\n", addOpts.Script.PlaybookScript))
+	if addOpts.Message != "" {
+		buf.WriteString(fmt.Sprintf("%s\n\n", addOpts.Message))
+	}
+	buf.WriteString(fmt.Sprintf("```%s scripthaus\n%s\n```\n", addOpts.ScriptType, addOpts.ScriptText))
+	fmt.Printf("%s\n", buf.String())
+	if addOpts.DryRun {
+		fmt.Printf("[^scripthaus] Not modifying file, --dry-run specified\n")
+		return 0, nil
+	}
+	fd, err := os.OpenFile(resolvedFileName, os.O_APPEND|os.O_WRONLY, 0644)
+	defer func() {
+		closeErr := fd.Close()
+		if closeErr != nil && errRtn == nil {
+			errCode = 1
+			errRtn = fmt.Errorf("cannot close/write to playbook '%s': %w", resolvedFileName, closeErr)
+		}
+	}()
+	if err != nil {
+		fmt.Printf("cannot open playbook '%s' for append: %w", resolvedFileName, err)
+	}
+	_, err = fd.WriteString(buf.String())
+	if err != nil {
+		fmt.Printf("cannot write to playbook '%s': %w", resolvedFileName, err)
+	}
 	return 0, nil
+}
+
+func readCommandsFromFile(fileName string) ([]commanddef.CommandDef, error) {
+	fd, err := os.Open(fileName)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open playbook file '%s': %w", fileName, err)
+	}
+	defer fd.Close()
+	fileBytes, err := io.ReadAll(fd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read playbook file '%s': %w", fileName, err)
+	}
+	defs, _, err := mdparser.ParseCommands(fileBytes)
+	if err != nil {
+		return nil, err
+	}
+	return defs, nil
 }
 
 func printVersion() {

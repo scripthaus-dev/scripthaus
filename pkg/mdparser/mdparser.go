@@ -52,7 +52,7 @@ func mdIndexBackToNewLine(mdIdx int, mdSource []byte) int {
 
 var validNameRe = regexp.MustCompile("^[a-zA-Z_][a-zA-Z0-9_-]*$")
 
-func isValidName(name string) bool {
+func IsValidScriptName(name string) bool {
 	return validNameRe.MatchString(name)
 }
 
@@ -168,7 +168,7 @@ func ParseCommands(mdSource []byte) ([]commanddef.CommandDef, []string, error) {
 			if child != nil && child.Kind() == ast.KindCodeSpan {
 				startIdx, startLineNo := blockStartIndex(headingNode, mdSource)
 				defName := string(child.Text(mdSource))
-				if !isValidName(defName) {
+				if !IsValidScriptName(defName) {
 					warnings = append(warnings, fmt.Sprintf("potential script heading found but bad script name '%s' is invalid (line %d)", defName, startLineNo))
 					continue
 				}
@@ -176,7 +176,7 @@ func ParseCommands(mdSource []byte) ([]commanddef.CommandDef, []string, error) {
 			}
 		}
 
-		if codeNode != nil {
+		if codeNode != nil && codeNode.Info != nil {
 			infoText := string(codeNode.Info.Text(mdSource))
 			lang, blockInfo := parseInfo(infoText)
 			if blockInfo["scripthaus"] == "" {

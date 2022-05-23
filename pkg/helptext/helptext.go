@@ -9,6 +9,7 @@ Commands:
     version         - print version and exit
     run             - runs a standalone or playbook script
     list            - list commands available in playbook
+    add             - quickly add a command to a playbook
     show            - show help and script text for a playbook script
     help            - describe commands and usage
     help [command]  - specific help for particular command
@@ -95,3 +96,35 @@ Commands:
     add             - adds a command from your history to playbook
     help [command]  - describe commands and usage
 `)
+
+var AddText = replaceBacktick(strings.TrimSpace(`
+Usage: scripthaus add [show-opts] [playbook]/[script] -c "[command]"
+       scripthaus add [show-opts] [playbook]/[script] -- [command]...
+       scripthaus add [show-opts] [playbook]/[script] - < [command-file]
+
+The 'add' command will add a command to the playbook specified, and give it
+the name [scriptname].  There are three ways to specify a command:
+
+The first, with "-c" passes the command as a single argument which
+is appropriate for passing history items, e.g. -c "!!" or -c "[:backtick]fc -ln 500 502[:backtick]"
+
+The second form with a "--" will read all the following arguments
+as the command (and separate the arguments with spaces), 
+e.g. -- echo -n "hello".
+
+The third form with "-" will read the command from stdin.
+This works great for importing an existing script or to grab
+a set of history commands e.g. - 
+
+Add Options:
+    -t, --type [scripttype]  - (required) the language type for the script (e.g. bash, python3)
+    -p, --playbook [file]    - specify a playbook to use
+    -m, --message [message]  - add some help text for the command.  markdown, will be added
+                               above the code fence.
+    -c [script-text]         - the text for the script to be added
+    --dry-run                - print messages, but do not modify playbook file
+`))
+
+func replaceBacktick(str string) string {
+	return strings.ReplaceAll(str, "[:backtick]", "`")
+}
