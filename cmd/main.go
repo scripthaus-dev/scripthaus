@@ -191,43 +191,40 @@ func resolveScript(cmdName string, scriptName string, curPlaybookFile string) (c
 func parseRunOpts(gopts globalOpts) (commanddef.RunOptsType, error) {
 	var rtn commanddef.RunOptsType
 	var err error
-	for argIdx := 0; argIdx < len(gopts.CommandArgs); {
-		isLast := (argIdx == len(gopts.CommandArgs)-1)
-		argStr := gopts.CommandArgs[argIdx]
+	iter := &OptsIter{Opts: gopts.CommandArgs}
+	for iter.HasNext() {
+		argStr := iter.Next()
 		if argStr == "-p" || argStr == "--playbook" {
-			if isLast {
+			if !iter.HasNext() {
 				return rtn, fmt.Errorf("'%s [playbook]' missing playbook name", argStr)
 			}
-			rtn.Script.PlaybookFile = gopts.CommandArgs[argIdx+1]
-			argIdx += 2
+			rtn.Script.PlaybookFile = iter.Next()
 			continue
 		}
 		if argStr == "--docker-image" {
-			if isLast {
+			if !iter.HasNext() {
 				return rtn, fmt.Errorf("'%s [image]' missing image name", argStr)
 			}
-			rtn.RunSpec.DockerImage = gopts.CommandArgs[argIdx+1]
+			rtn.RunSpec.DockerImage = iter.Next()
 			rtn.RunSpec.SpecialMode = "docker"
-			argIdx += 2
 			continue
 		}
 		if argStr == "--docker-opts" {
-			if isLast {
+			if !iter.HasNext() {
 				return rtn, fmt.Errorf("'%s [docker-opts]' missing options", argStr)
 			}
-			dockerOpts, err := shellwords.Parse(gopts.CommandArgs[argIdx+1])
+			dockerOpts, err := shellwords.Parse(iter.Next())
 			if err != nil {
 				return rtn, fmt.Errorf("%s '%s', error splitting docker-opts: %w", err)
 			}
 			rtn.RunSpec.DockerOpts = dockerOpts
-			argIdx += 2
 			continue
 		}
 		if argStr == "--env" {
-			if isLast {
+			if !iter.HasNext() {
 				return rtn, fmt.Errorf("'%s \"[VAR=VAL]\" or %s file.env' missing value", argStr)
 			}
-			envVal := gopts.CommandArgs[argIdx+1]
+			envVal := iter.Next()
 			if strings.Index(envVal, "=") != -1 {
 				envPairs := strings.Split(envVal, ";")
 				for _, envPair := range envPairs {
@@ -244,19 +241,16 @@ func parseRunOpts(gopts globalOpts) (commanddef.RunOptsType, error) {
 			} else {
 				return rtn, fmt.Errorf("'%s [env-file]' not supported", argStr)
 			}
-			argIdx += 2
 			continue
 		}
 		if argStr == "--nolog" {
 			rtn.RunSpec.NoLog = true
 			rtn.RunSpec.ForceLog = false
-			argIdx++
 			continue
 		}
 		if argStr == "--log" {
 			rtn.RunSpec.NoLog = false
 			rtn.RunSpec.ForceLog = true
-			argIdx++
 			continue
 		}
 		if strings.HasPrefix(argStr, "-") && argStr != "-" && !strings.HasPrefix(argStr, "-/") {
@@ -266,7 +260,7 @@ func parseRunOpts(gopts globalOpts) (commanddef.RunOptsType, error) {
 		if err != nil {
 			return rtn, err
 		}
-		rtn.RunSpec.ScriptArgs = gopts.CommandArgs[argIdx+1:]
+		rtn.RunSpec.ScriptArgs = iter.Rest()
 		break
 	}
 	if rtn.Script.IsEmpty() {
@@ -277,26 +271,25 @@ func parseRunOpts(gopts globalOpts) (commanddef.RunOptsType, error) {
 
 func parseListOpts(gopts globalOpts) (listOptsType, error) {
 	var rtn listOptsType
-	for argIdx := 0; argIdx < len(gopts.CommandArgs); {
-		isLast := (argIdx == len(gopts.CommandArgs)-1)
-		argStr := gopts.CommandArgs[argIdx]
+	iter := &OptsIter{Opts: gopts.CommandArgs}
+	for iter.HasNext() {
+		argStr := iter.Next()
 		if argStr == "-p" || argStr == "--playbook" {
-			if isLast {
+			if !iter.HasNext() {
 				return rtn, fmt.Errorf("'%s [playbook]' missing playbook name", argStr)
 			}
-			rtn.PlaybookFile = gopts.CommandArgs[argIdx+1]
-			argIdx += 2
+			rtn.PlaybookFile = iter.Next()
 			continue
 		}
-		if strings.HasPrefix(argStr, "-") && argStr != "-" {
+		if isOption(argStr) {
 			return rtn, fmt.Errorf("Invalid option '%s' passed to scripthaus list command", argStr)
 		}
 		if rtn.PlaybookFile != "" {
 			return rtn, fmt.Errorf("Usage: scripthaus list, playbook already specified with --playbook '%s', cannot list again as '%s'", rtn.PlaybookFile, argStr)
 		}
 		rtn.PlaybookFile = argStr
-		if !isLast {
-			return rtn, fmt.Errorf("Usage: scripthaus list [playbook], too many arguments passed, extras = '%s'", strings.Join(gopts.CommandArgs[argIdx+1:], " "))
+		if iter.HasNext() {
+			return rtn, fmt.Errorf("Usage: scripthaus list [playbook], too many arguments passed, extras = '%s'", strings.Join(iter.Rest(), " "))
 		}
 		break
 	}
@@ -343,26 +336,25 @@ type showOptsType struct {
 func parseShowOpts(gopts globalOpts) (showOptsType, error) {
 	var rtn showOptsType
 	var err error
-	for argIdx := 0; argIdx < len(gopts.CommandArgs); {
-		isLast := (argIdx == len(gopts.CommandArgs)-1)
-		argStr := gopts.CommandArgs[argIdx]
+	iter := &OptsIter{Opts: gopts.CommandArgs}
+	for iter.HasNext() {
+		argStr := iter.Next()
 		if argStr == "-p" || argStr == "--playbook" {
-			if isLast {
+			if !iter.HasNext() {
 				return rtn, fmt.Errorf("'%s [playbook]' missing playbook name", argStr)
 			}
-			rtn.Script.PlaybookFile = gopts.CommandArgs[argIdx+1]
-			argIdx += 2
+			rtn.Script.PlaybookFile = iter.Next()
 			continue
 		}
-		if strings.HasPrefix(argStr, "-") && argStr != "-" && !strings.HasPrefix(argStr, "-/") {
+		if isOption(argStr) {
 			return rtn, fmt.Errorf("invalid option '%s' passed to scripthaus show command", argStr)
 		}
 		rtn.Script, err = resolveScript("show", argStr, rtn.Script.PlaybookFile)
 		if err != nil {
 			return rtn, err
 		}
-		if !isLast {
-			return rtn, fmt.Errorf("Usage: scripthaus show [playbook]/[script], too many arguments passed, extras = '%s'", strings.Join(gopts.CommandArgs[argIdx+1:], " "))
+		if iter.HasNext() {
+			return rtn, fmt.Errorf("Usage: scripthaus show [playbook]/[script], too many arguments passed, extras = '%s'", strings.Join(iter.Rest(), " "))
 		}
 		break
 	}
