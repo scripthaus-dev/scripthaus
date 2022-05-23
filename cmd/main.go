@@ -25,7 +25,7 @@ import (
 	"github.com/mattn/go-shellwords"
 )
 
-const ScriptHausVersion = "0.1.0"
+const ScriptHausVersion = "0.2.1"
 
 func runVersionCommand(gopts globalOptsType) {
 	printVersion()
@@ -546,7 +546,7 @@ func readCommandsFromFile(fileName string) ([]commanddef.CommandDef, error) {
 }
 
 func printVersion() {
-	fmt.Printf("^ScriptHaus v%s\n", ScriptHausVersion)
+	fmt.Printf("[^scripthaus] v%s\n", ScriptHausVersion)
 }
 
 type globalOptsType struct {
