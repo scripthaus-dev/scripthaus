@@ -91,7 +91,11 @@ func ResolveFileWithPath(fileName string, fileType string) (string, error) {
 		return fileName, err
 	}
 	scPaths := GetSCPath()
+	hasDot := false
 	for _, scPath := range scPaths {
+		if scPath == "." {
+			hasDot = true
+		}
 		fullPath := path.Join(scPath, fileName)
 		found, err := tryFindFile(fullPath, fileType, false)
 		if found {
@@ -100,6 +104,12 @@ func ResolveFileWithPath(fileName string, fileType string) (string, error) {
 			} else {
 				return fullPath, nil
 			}
+		}
+	}
+	if !hasDot && strings.Index(fileName, "/") == -1 {
+		found, _ := tryFindFile(fileName, fileType, false)
+		if found {
+			return "", fmt.Errorf("cannot find %s file '%s' (was found in cwd, maybe you meant './%s')", fileType, fileName, fileName)
 		}
 	}
 	return "", fmt.Errorf("cannot find %s file '%s'", fileType, fileName)
@@ -220,11 +230,21 @@ func ReadFileFromPath(fileName string, fileType string) (string, []byte, error) 
 
 	// look up in path (using SCRIPTHAUS_PATH)
 	scPaths := GetSCPath()
+	hasDot := false
 	for _, scPath := range scPaths {
+		if scPath == "." {
+			hasDot = true
+		}
 		fullPath := path.Join(scPath, fileName)
 		found, rtnBytes, err := tryReadFile(fullPath, fileType, false)
 		if found {
 			return fullPath, rtnBytes, err
+		}
+	}
+	if !hasDot && strings.Index(fileName, "/") == -1 {
+		found, _, _ := tryReadFile(fileName, fileType, false)
+		if found {
+			return "", nil, fmt.Errorf("cannot find %s file '%s' (was found in cwd, maybe you meant './%s')", fileType, fileName, fileName)
 		}
 	}
 	return "", nil, fmt.Errorf("cannot find %s file '%s'", fileType, fileName)

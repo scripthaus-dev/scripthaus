@@ -125,8 +125,9 @@ func runRunCommand(gopts globalOpts) (int, error) {
 		return 1, err
 	}
 	ctx := context.Background()
-	if runOpts.ScriptFile != "" {
-		realScriptPath, err := pathutil.ResolveFileWithPath(runOpts.ScriptFile, "script")
+	script := runOpts.Script
+	if script.ScriptFile != "" {
+		realScriptPath, err := pathutil.ResolveFileWithPath(script.ScriptFile, "script")
 		if err != nil {
 			return 1, err
 		}
@@ -136,11 +137,11 @@ func runRunCommand(gopts globalOpts) (int, error) {
 		}
 		return runExecCmd(execCmd, realScriptPath, nil, gopts)
 	} else {
-		resolvedFileName, foundCommand, err := resolvePlaybookCommand(runOpts.PlaybookFile, runOpts.PlaybookScript, gopts)
+		resolvedFileName, foundCommand, err := resolvePlaybookCommand(script.PlaybookFile, script.PlaybookScript, gopts)
 		if foundCommand == nil || err != nil {
 			return 1, err
 		}
-		fullScriptName := fmt.Sprintf("%s/%s", resolvedFileName, runOpts.PlaybookScript)
+		fullScriptName := fmt.Sprintf("%s/%s", resolvedFileName, script.PlaybookScript)
 		err = foundCommand.CheckCommand(fullScriptName, runOpts.RunSpec)
 		if err != nil {
 			return 1, err
@@ -153,50 +154,43 @@ func runRunCommand(gopts globalOpts) (int, error) {
 	}
 }
 
-func resolveScript(cmdName string, scriptName string, opts commanddef.IResolveScript) error {
+func resolveScript(cmdName string, scriptName string, curPlaybookFile string) (commanddef.ScriptDef, error) {
+	var emptyRtn commanddef.ScriptDef
 	if scriptName == "-" {
-		return fmt.Errorf("invalid script '%s', cannot execute standalone script from <stdin>", scriptName)
+		return emptyRtn, fmt.Errorf("invalid script '%s', cannot execute standalone script from <stdin>", scriptName)
 	}
-	if opts.GetPlaybookFile() != "" {
+	if curPlaybookFile != "" {
 		if strings.Index(scriptName, "/") != -1 {
-			return fmt.Errorf("invalid script '%s', no slash allowed when --playbook '%s' is specified", scriptName, opts.GetPlaybookFile())
+			return emptyRtn, fmt.Errorf("invalid script '%s', no slash allowed when --playbook '%s' is specified", scriptName, curPlaybookFile)
 		}
-		opts.SetFullScriptName(opts.GetPlaybookFile() + "/" + scriptName)
-		opts.SetPlaybookScript(scriptName)
-		return nil
+		return commanddef.ScriptDef{PlaybookFile: curPlaybookFile, PlaybookScript: scriptName}, nil
 	}
-	opts.SetFullScriptName(scriptName)
 	if strings.HasSuffix(scriptName, "/") {
-		return fmt.Errorf("invalid script '%s', cannot have a trailing slash", scriptName)
+		return emptyRtn, fmt.Errorf("invalid script '%s', cannot have a trailing slash", scriptName)
 	}
 	if strings.HasSuffix(scriptName, ".md") {
-		return fmt.Errorf("no playbook script specified, usage: %s %s/[script]", cmdName, scriptName)
+		return emptyRtn, fmt.Errorf("no playbook script specified, usage: %s %s/[script]", cmdName, scriptName)
 	}
 	if strings.Index(scriptName, "/") != -1 {
 		dirName, baseName := path.Split(scriptName)
 		dirFile := dirName[:len(dirName)-1]
 		if dirFile == "-" {
-			opts.SetPlaybookFile("-")
-			opts.SetPlaybookScript(baseName)
-			return nil
+			return commanddef.ScriptDef{PlaybookFile: "-", PlaybookScript: baseName}, nil
 		} else if path.Ext(dirFile) == ".md" {
 			// an ".md" file as a directory means this is a playbook
-			opts.SetPlaybookFile(dirFile)
-			opts.SetPlaybookScript(baseName)
-			return nil
+			return commanddef.ScriptDef{PlaybookFile: dirFile, PlaybookScript: baseName}, nil
 		} else {
 			// "directory" is not a .md file.  So scriptName must be a standalone ScriptFile
-			opts.SetScriptFile(scriptName)
-			return nil
+			return commanddef.ScriptDef{ScriptFile: scriptName}, nil
 		}
 	}
 	// no slash, so this must be a standalone script file
-	opts.SetScriptFile(scriptName)
-	return nil
+	return commanddef.ScriptDef{ScriptFile: scriptName}, nil
 }
 
 func parseRunOpts(gopts globalOpts) (commanddef.RunOptsType, error) {
 	var rtn commanddef.RunOptsType
+	var err error
 	for argIdx := 0; argIdx < len(gopts.CommandArgs); {
 		isLast := (argIdx == len(gopts.CommandArgs)-1)
 		argStr := gopts.CommandArgs[argIdx]
@@ -204,7 +198,7 @@ func parseRunOpts(gopts globalOpts) (commanddef.RunOptsType, error) {
 			if isLast {
 				return rtn, fmt.Errorf("'%s [playbook]' missing playbook name", argStr)
 			}
-			rtn.PlaybookFile = gopts.CommandArgs[argIdx+1]
+			rtn.Script.PlaybookFile = gopts.CommandArgs[argIdx+1]
 			argIdx += 2
 			continue
 		}
@@ -268,14 +262,14 @@ func parseRunOpts(gopts globalOpts) (commanddef.RunOptsType, error) {
 		if strings.HasPrefix(argStr, "-") && argStr != "-" && !strings.HasPrefix(argStr, "-/") {
 			return rtn, fmt.Errorf("invalid option '%s' passed to scripthaus run command", argStr)
 		}
-		err := resolveScript("run", argStr, &rtn)
+		rtn.Script, err = resolveScript("run", argStr, rtn.Script.PlaybookFile)
 		if err != nil {
 			return rtn, err
 		}
 		rtn.RunSpec.ScriptArgs = gopts.CommandArgs[argIdx+1:]
 		break
 	}
-	if rtn.PlaybookScript == "" && rtn.ScriptFile == "" {
+	if rtn.Script.IsEmpty() {
 		return rtn, fmt.Errorf("Usage: scripthaus run [run-opts] [script] [script-opts], no script specified")
 	}
 	return rtn, nil
@@ -343,33 +337,12 @@ func runListCommand(gopts globalOpts) error {
 }
 
 type showOptsType struct {
-	FullScriptName string
-	PlaybookFile   string
-	PlaybookScript string
-}
-
-func (opts *showOptsType) GetPlaybookFile() string {
-	return opts.PlaybookFile
-}
-
-func (opts *showOptsType) SetScriptFile(val string) {
-	// nothing
-}
-
-func (opts *showOptsType) SetFullScriptName(val string) {
-	opts.FullScriptName = val
-}
-
-func (opts *showOptsType) SetPlaybookFile(val string) {
-	opts.PlaybookFile = val
-}
-
-func (opts *showOptsType) SetPlaybookScript(val string) {
-	opts.PlaybookScript = val
+	Script commanddef.ScriptDef
 }
 
 func parseShowOpts(gopts globalOpts) (showOptsType, error) {
 	var rtn showOptsType
+	var err error
 	for argIdx := 0; argIdx < len(gopts.CommandArgs); {
 		isLast := (argIdx == len(gopts.CommandArgs)-1)
 		argStr := gopts.CommandArgs[argIdx]
@@ -377,14 +350,14 @@ func parseShowOpts(gopts globalOpts) (showOptsType, error) {
 			if isLast {
 				return rtn, fmt.Errorf("'%s [playbook]' missing playbook name", argStr)
 			}
-			rtn.PlaybookFile = gopts.CommandArgs[argIdx+1]
+			rtn.Script.PlaybookFile = gopts.CommandArgs[argIdx+1]
 			argIdx += 2
 			continue
 		}
 		if strings.HasPrefix(argStr, "-") && argStr != "-" && !strings.HasPrefix(argStr, "-/") {
 			return rtn, fmt.Errorf("invalid option '%s' passed to scripthaus show command", argStr)
 		}
-		err := resolveScript("show", argStr, &rtn)
+		rtn.Script, err = resolveScript("show", argStr, rtn.Script.PlaybookFile)
 		if err != nil {
 			return rtn, err
 		}
@@ -393,10 +366,10 @@ func parseShowOpts(gopts globalOpts) (showOptsType, error) {
 		}
 		break
 	}
-	if rtn.PlaybookFile == "" {
+	if rtn.Script.PlaybookFile == "" {
 		return rtn, fmt.Errorf("Usage: scripthaus show [playbook]/[script], no playbook specified")
 	}
-	if rtn.PlaybookScript == "" {
+	if rtn.Script.PlaybookScript == "" {
 		return rtn, fmt.Errorf("Usage: scripthaus show [playbook]/[script], no script specified")
 	}
 	return rtn, nil
@@ -407,13 +380,32 @@ func runShowCommand(gopts globalOpts) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	resolvedFileName, foundCommand, err := resolvePlaybookCommand(showOpts.PlaybookFile, showOpts.PlaybookScript, gopts)
+	resolvedFileName, foundCommand, err := resolvePlaybookCommand(showOpts.Script.PlaybookFile, showOpts.Script.PlaybookScript, gopts)
 	if foundCommand == nil || err != nil {
 		return 1, err
 	}
-	fullScriptName := fmt.Sprintf("%s/%s", resolvedFileName, showOpts.PlaybookScript)
+	fullScriptName := fmt.Sprintf("%s/%s", resolvedFileName, showOpts.Script.PlaybookScript)
 	fmt.Printf("[^scripthaus] show '%s'\n\n", fullScriptName)
 	fmt.Printf("%s\n%s\n\n", foundCommand.HelpText, foundCommand.RawCodeText)
+	return 0, nil
+}
+
+type addOptsType struct {
+	FullScriptName string
+	PlaybookFile   string
+	PlaybookScript string
+}
+
+func parseAddOpts(opts globalOpts) (addOptsType, error) {
+	var rtn addOptsType
+	return rtn, nil
+}
+
+func runAddCommand(gopts globalOpts) (int, error) {
+	_, err := parseAddOpts(gopts)
+	if err != nil {
+		return 1, err
+	}
 	return 0, nil
 }
 
@@ -432,27 +424,51 @@ type globalOpts struct {
 
 func parseGlobalOpts(args []string) (globalOpts, error) {
 	var opts globalOpts
-	for argIdx := 1; argIdx < len(args); {
-		// isLast := (argIdx+1 == len(args))
-		argStr := args[argIdx]
+	iter := &OptsIter{Opts: args[1:]}
+	for iter.HasNext() {
+		argStr := iter.Next()
 		if argStr == "-v" || argStr == "--verbose" {
 			opts.Verbose++
-			argIdx++
 			continue
 		}
 		if argStr == "-q" || argStr == "--quiet" {
 			opts.Quiet = true
-			argIdx++
 			continue
 		}
-		if strings.HasPrefix(argStr, "-") {
-			return opts, fmt.Errorf("Invalid argument '%s'", argStr)
+		if isOption(argStr) {
+			return opts, fmt.Errorf("Invalid option '%s'", argStr)
 		}
 		opts.CommandName = argStr
-		opts.CommandArgs = args[argIdx+1:]
+		opts.CommandArgs = iter.Rest()
 		break
 	}
 	return opts, nil
+}
+
+type OptsIter struct {
+	Pos  int
+	Opts []string
+}
+
+func isOption(argStr string) bool {
+	return strings.HasPrefix(argStr, "-") && argStr != "-" && !strings.HasPrefix(argStr, "-/")
+}
+
+func (iter *OptsIter) HasNext() bool {
+	return iter.Pos <= len(iter.Opts)-1
+}
+
+func (iter *OptsIter) Next() string {
+	if iter.Pos >= len(iter.Opts) {
+		return ""
+	}
+	rtn := iter.Opts[iter.Pos]
+	iter.Pos++
+	return rtn
+}
+
+func (iter *OptsIter) Rest() []string {
+	return iter.Opts[iter.Pos:]
 }
 
 func main() {
@@ -471,6 +487,8 @@ func main() {
 		exitCode, err = runRunCommand(gopts)
 	} else if gopts.CommandName == "show" {
 		exitCode, err = runShowCommand(gopts)
+	} else if gopts.CommandName == "add" {
+		exitCode, err = runAddCommand(gopts)
 	} else if gopts.CommandName == "list" {
 		err = runListCommand(gopts)
 	} else {

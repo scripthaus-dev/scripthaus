@@ -49,43 +49,34 @@ type SpecType struct {
 	Env []string
 }
 
-type IResolveScript interface {
-	SetScriptFile(val string)
-	SetFullScriptName(val string)
-	SetPlaybookFile(val string)
-	SetPlaybookScript(val string)
-	GetPlaybookFile() string
-}
-
-type RunOptsType struct {
-	FullScriptName string
-
+// holds a script-name or playbook-file/playbook-script
+type ScriptDef struct {
 	// either ScriptFile or PlaybookFile will be set, not both
 	ScriptFile     string
 	PlaybookFile   string
 	PlaybookScript string
+}
 
+func (def ScriptDef) FullScriptName() string {
+	if def.ScriptFile != "" {
+		return def.ScriptFile
+	}
+	if def.PlaybookFile != "" && def.PlaybookScript == "" {
+		return def.PlaybookFile
+	}
+	if def.PlaybookFile != "" && def.PlaybookScript != "" {
+		return fmt.Sprintf("%s/%s", def.PlaybookFile, def.PlaybookScript)
+	}
+	return ""
+}
+
+func (def ScriptDef) IsEmpty() bool {
+	return def.ScriptFile == "" && def.PlaybookFile == ""
+}
+
+type RunOptsType struct {
+	Script  ScriptDef
 	RunSpec SpecType // specs can be combined (so they are pulled out separately)
-}
-
-func (opts *RunOptsType) GetPlaybookFile() string {
-	return opts.PlaybookFile
-}
-
-func (opts *RunOptsType) SetScriptFile(val string) {
-	opts.ScriptFile = val
-}
-
-func (opts *RunOptsType) SetFullScriptName(val string) {
-	opts.FullScriptName = val
-}
-
-func (opts *RunOptsType) SetPlaybookFile(val string) {
-	opts.PlaybookFile = val
-}
-
-func (opts *RunOptsType) SetPlaybookScript(val string) {
-	opts.PlaybookScript = val
 }
 
 func setStandardCmdOpts(cmd *exec.Cmd, runSpec SpecType) {
