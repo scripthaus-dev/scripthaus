@@ -15,8 +15,9 @@ Commands:
     help [command]  - specific help for particular command
 
 Global Options:
-    -v, --verbose   - more debugging output
-    -q, --quiet     - do not show version and command summary info (script output only)
+    -p, --playbook [file]    - specify a playbook to use
+    -v, --verbose            - more debugging output
+    -q, --quiet              - do not show version and command summary info (script output only)
 `)
 
 var RunText = strings.TrimSpace(`
@@ -29,7 +30,7 @@ executable file it will be executed directly.  If it has a known extension
 
 It can also execute a playbook command by combining the playbook name
 (which must use a .md extension) '/' command name, e.g. 'playbook.md/test1' will
-execute the 'test1' script inside of the playbook 'playbook.md'.  If the
+execute the 'test1' script inside of the playbook 'playbook.md'.  If the global
 '--playbook' option is given, then 'script' will always be interpreted as
 a script inside of the given playbook.
 
@@ -43,7 +44,6 @@ Any arguments after 'script' will be passed verbatim as options to the script.
 Run Options:
     --nolog                  - will not log this command to scripthaus history
     --log                    - force logging of command to scripthaus history (default)
-    -p, --playbook [file]    - specify a playbook to use
     --docker-image [image]   - specify a docker image to run this script against (will set --mode inine)
     --docker-opts [opts]     - options to pass to "docker run".  will be split according to shell rules
     --env 'var=val;var=val'  - specify additional environment variables (';' is seperator)
@@ -60,18 +60,24 @@ If no playbook is passed list will find all playbooks in the SCRIPTHAUS_PATH
 and list all of their commands.
 
 List Options:
-    -p, --playbook [file]    - specify a playbook to use
+    none
 `)
 
 var ShowText = strings.TrimSpace(`
 Usage: scripthaus show [show-opts] [playbook]/[script]
+       scripthaus show [show-opts] [playbook]
 
 The 'show' command will show the help for a particular script in a playbook.
 By default it will show the markdown text and the code block that
 make up the script.
 
-List Options:
-    -p, --playbook [file]    - specify a playbook to use
+If no script is given, this will behave like the 'list' command and
+show all of the scripts in the given playbook file.
+
+Note that playbook may also be specified using the global --playbook option.
+
+Show Options:
+    none
 `)
 
 var VersionText = strings.TrimSpace(`
@@ -98,9 +104,9 @@ Commands:
 `)
 
 var AddText = replaceBacktick(strings.TrimSpace(`
-Usage: scripthaus add [show-opts] [playbook]/[script] -c "[command]"
-       scripthaus add [show-opts] [playbook]/[script] -- [command]...
-       scripthaus add [show-opts] [playbook]/[script] - < [command-file]
+Usage: scripthaus add [add-opts] [playbook]/[script] -c "[command]"
+       scripthaus add [add-opts] [playbook]/[script] -- [command]...
+       scripthaus add [add-opts] [playbook]/[script] - < [command-file]
 
 The 'add' command will add a command to the playbook specified, and give it
 the name [scriptname].  There are three ways to specify a command:
@@ -118,7 +124,6 @@ a set of history commands e.g. -
 
 Add Options:
     -t, --type [scripttype]  - (required) the language type for the script (e.g. bash, python3)
-    -p, --playbook [file]    - specify a playbook to use
     -m, --message [message]  - add some help text for the command.  markdown, will be added
                                above the code fence.
     -c [script-text]         - the text for the script to be added
