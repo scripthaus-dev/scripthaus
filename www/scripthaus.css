@@ -105,7 +105,7 @@ body {
     color: white;
     position: relative;
     width: 80%;
-    margin-top: 30px;
+    margin-top: 1rem;
 }
 
 .terminal .linear-grad {
@@ -132,7 +132,7 @@ body {
 .terminal pre {
     display: block;
     background-color: transparent;
-    font-size: 1.25rem;
+    font-size: 1rem;
     padding: 0;
     color: #d3d7cf;
     font-family: "JetBrains Mono", monospace;
@@ -158,11 +158,19 @@ br.mobile {
     background-color: #555;
 }
 
-.middle-content {
-    display: flex;
-    flex-direction: row;
+.desktop-center {
     margin-left: 10%;
     margin-right: 10%;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+}
+
+.desktop-mr3 {
+    margin-right: 0.75rem;
+}
+
+.middle-content {
     margin-top: 8px;
 }
 
@@ -182,20 +190,23 @@ br.mobile {
 }
 
 .middle-content .osi-logo img {
-    height: 180px;
+    height: 140px;
 }
 
 @media only screen and (max-width: 600px) {
     div.terminal {
         width: 100%;
-        margin-top: 0;
+        margin-top: 0.5rem;
         margin-left: 0;
+    }
+
+    .desktop-center {
+        margin-left: 5px;
+        margin-right: 5px;
     }
 
     div.middle-content {
         flex-direction: column;
-        margin-left: 5px;
-        margin-right: 5px;
         margin-top: 0;
     }
 
@@ -222,5 +233,9 @@ br.mobile {
     
     br.mobile {
         display: inline;
+    }
+
+    body .desktop-mr3 {
+        margin-right: 0 !important;
     }
 }

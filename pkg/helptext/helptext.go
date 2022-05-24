@@ -18,6 +18,11 @@ Global Options:
     -p, --playbook [file]    - specify a playbook to use
     -v, --verbose            - more debugging output
     -q, --quiet              - do not show version and command summary info (script output only)
+
+Resources:
+    github          - https://github.com/scripthaus-dev/scripthaus
+    homepage        - https://www.scripthaus.dev
+    discord         - https://discord.gg/XfvZ334gwU
 `)
 
 var RunText = strings.TrimSpace(`
@@ -101,6 +106,11 @@ Commands:
     show            - show help and script text for a playbook script
     add             - adds a command from your history to playbook
     help [command]  - describe commands and usage
+
+Resources:
+    github          - https://github.com/scripthaus-dev/scripthaus
+    homepage        - https://www.scripthaus.dev
+    discord         - https://discord.gg/XfvZ334gwU
 `)
 
 var AddText = replaceBacktick(strings.TrimSpace(`
