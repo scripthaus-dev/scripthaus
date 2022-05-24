@@ -500,7 +500,7 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 	}
 	var buf bytes.Buffer
 	fmt.Printf("[^scripthaus] adding command '%s' to %s:\n", addOpts.Script.PlaybookScript, resolvedFileName)
-	buf.WriteString(fmt.Sprintf("#### `%s`\n\n", addOpts.Script.PlaybookScript))
+	buf.WriteString(fmt.Sprintf("\n#### `%s`\n\n", addOpts.Script.PlaybookScript))
 	if addOpts.Message != "" {
 		buf.WriteString(fmt.Sprintf("%s\n\n", addOpts.Message))
 	}
