@@ -92,8 +92,8 @@ into self-documenting markdown files.
 
 * Stay Organized - Store your bash one-liners in a simple markdown file
 * Save Commands - Easily save a command from history to run or view later
-* Never Forget - Store history by command, including options, date, cwd, and exitcode
-* Share - Save your files in github and share them with your team
+* Execute - Run and view your commands directly from the command-line
+* Share - Save your files in git and share them with your team
 
 Commands:
     run             - runs a standalone or playbook script

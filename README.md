@@ -5,7 +5,8 @@ into self-documenting markdown files.
 
 * Stay Organized - Store your bash one-liners in a simple markdown file
 * Save Commands - Easily save a command from history to run or view later
-* Share - Save your files in github and share them with your team
+* Execute - Run and view your commands directly from the command-line
+* Share - Save your files in git and share them with your team
 
 ScriptHaus is open source and licensed under the MPLv2.
 
@@ -42,7 +43,7 @@ in the current directory with "./playbook.md".
 
 Scripts are contained within playbooks.  A script begins with a level 4 header with the name of the command in backticks.
 Then add a code fence with the text of your script.  The code fence should have its language set to an allowed scripthaus type
-(sh, bash, python, python2, python3, js, or node) with the extra tag "scripthaus" after the language.  Any additional markdown between the
+(sh, bash, python, python2, python3, js, or node) with the **extra tag** "scripthaus" after the language.  Any additional markdown between the
 header and the code fence is documentation.  Here's a simple example:
 
 ````markdown
