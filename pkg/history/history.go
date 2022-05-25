@@ -16,7 +16,6 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
-	sqlite3 "github.com/mattn/go-sqlite3"
 	"github.com/scripthaus-dev/scripthaus/pkg/base"
 )
 
@@ -31,7 +30,8 @@ CREATE TABLE scripthaus_meta (
 );
 
 CREATE TABLE history (
-    ts integer PRIMARY KEY,
+    historyid integer PRIMARY KEY,
+    ts integer,
     scversion text,
     runtype text,
     scriptpath text,
@@ -58,6 +58,7 @@ type DBMeta struct {
 type HistoryMetaType struct{}
 
 type HistoryItem struct {
+	HistoryId  int64
 	Ts         int64
 	ScVersion  string
 	RunType    string
@@ -75,13 +76,47 @@ type HistoryItem struct {
 	ExitCode   int   // update
 }
 
-func InsertHistoryItem(item *HistoryItem, tryNum int) error {
-	if tryNum > 3 {
-		return fmt.Errorf("cannot insert into history db (primary key, 3 tries)")
-	}
+func ReNumberHistory() error {
 	sqlStr := `
-        INSERT INTO history (ts, scversion, runtype, scriptpath, scriptfile, scriptname, scripttype, metadata, cwd, hostname, ipaddr, sysuser, cmdline)
-               VALUES (:ts, :scversion, :runtype, :scriptpath, :scriptfile, :scriptname, :scripttype, :metadata, :cwd, :hostname, :ipaddr, :sysuser, :cmdline)
+        DROP TABLE IF EXISTS temp.history_renum;
+
+        CREATE TEMPORARY TABLE history_renum AS
+        SELECT historyid + 1000000000 as oldhid, row_number() over (order by ts) as newhid
+        FROM history;
+
+        UPDATE history
+        SET historyid = historyid + 1000000000;
+
+        UPDATE history
+        SET historyid = (SELECT renum.newhid FROM history_renum renum WHERE renum.oldhid = history.historyid);
+`
+	db, err := GetDBConn()
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	tx, err := db.Beginx()
+	if err != nil {
+		return fmt.Errorf("cannot start transaction (for history re-numbering): %w", err)
+	}
+	_, err = tx.Exec(sqlStr)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("cannot execute history re-numbering: %w", err)
+	}
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("cannot commit history re-numbering: %w", err)
+	}
+	return nil
+}
+
+func InsertHistoryItem(item *HistoryItem) error {
+	sqlStr := `
+        INSERT INTO history 
+            (historyid, ts, scversion, runtype, scriptpath, scriptfile, scriptname, scripttype, metadata, cwd, hostname, ipaddr, sysuser, cmdline)
+        VALUES 
+            (NULL, :ts, :scversion, :runtype, :scriptpath, :scriptfile, :scriptname, :scripttype, :metadata, :cwd, :hostname, :ipaddr, :sysuser, :cmdline)
 `
 	db, err := GetDBConn()
 	if err != nil {
@@ -90,10 +125,6 @@ func InsertHistoryItem(item *HistoryItem, tryNum int) error {
 	defer db.Close()
 	_, err = db.NamedExec(sqlStr, item)
 	if err != nil {
-		if err == sqlite3.ErrConstraintPrimaryKey {
-			item.Ts++
-			return InsertHistoryItem(item, tryNum+1)
-		}
 		return fmt.Errorf("cannot insert into db: %w", err)
 	}
 	return nil

@@ -140,6 +140,16 @@ Add Options:
     --dry-run                - print messages, but do not modify playbook file
 `))
 
+var HistoryText = replaceBacktick(strings.TrimSpace(`
+Usage: scripthaus history [history-opts]
+
+The history command will show you the last 50 scripthaus commands.
+
+History Options:
+    -n [num]                 - print last n commands
+    --all                    - print all history
+`))
+
 func replaceBacktick(str string) string {
 	return strings.ReplaceAll(str, "[:backtick]", "`")
 }

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,8 @@ func runHelpCommand(gopts globalOptsType, showVersion bool) {
 		fmt.Printf("\n%s\n\n", helptext.ShowText)
 	} else if subHelpCommand == "add" {
 		fmt.Printf("\n%s\n\n", helptext.AddText)
+	} else if subHelpCommand == "history" {
+		fmt.Printf("\n%s\n\n", helptext.HistoryText)
 	} else if subHelpCommand == "version" {
 		fmt.Printf("\n%s\n\n", helptext.VersionText)
 	} else if subHelpCommand == "overview" {
@@ -69,7 +72,7 @@ type listOptsType struct {
 
 // returns exitcode, error
 func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalOptsType) (int, error) {
-	err := history.InsertHistoryItem(execItem.HItem, 0)
+	err := history.InsertHistoryItem(execItem.HItem)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[^scripthaus] error trying to add run to history db: %v\n", err)
 	}
@@ -373,6 +376,49 @@ func parseShowOpts(gopts globalOptsType) (showOptsType, error) {
 	return rtn, nil
 }
 
+type historyOptsType struct {
+	ShowNum int
+	ShowAll bool
+}
+
+func parseHistoryOpts(opts globalOptsType) (historyOptsType, error) {
+	var rtn historyOptsType
+	iter := &OptsIter{Opts: opts.CommandArgs}
+	for iter.HasNext() {
+		argStr := iter.Next()
+		if argStr == "--all" {
+			rtn.ShowAll = true
+			continue
+		}
+		if argStr == "-n" {
+			if !iter.HasNext() {
+				return rtn, fmt.Errorf("'%s [num]' missing num", argStr)
+			}
+			numStr := iter.Next()
+			num, err := strconv.Atoi(numStr)
+			if err != nil {
+				return rtn, fmt.Errorf("'%s %s' invalid number: %w", argStr, numStr, err)
+			}
+			rtn.ShowNum = num
+			continue
+		}
+		if isOption(argStr) {
+			return rtn, fmt.Errorf("invalid option '%s' passed to scripthaus history command", argStr)
+		}
+		iter.Pos = iter.Pos - 1
+		return rtn, fmt.Errorf("too many arguments passed to scripthaus history command, extras = '%s'", strings.Join(iter.Rest(), " "))
+	}
+	return rtn, nil
+}
+
+func runHistoryCommand(opts globalOptsType) (int, error) {
+	_, err := parseHistoryOpts(opts)
+	if err != nil {
+		return 1, err
+	}
+	return 0, nil
+}
+
 func runShowCommand(gopts globalOptsType) (int, error) {
 	showOpts, err := parseShowOpts(gopts)
 	if err != nil {
@@ -644,6 +690,8 @@ func main() {
 		exitCode, err = runAddCommand(gopts)
 	} else if gopts.CommandName == "list" {
 		exitCode, err = runListCommand(gopts)
+	} else if gopts.CommandName == "history" {
+		exitCode, err = runHistoryCommand(gopts)
 	} else {
 		runInvalidCommand(gopts)
 		os.Exit(1)
