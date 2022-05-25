@@ -126,7 +126,7 @@ func blockStartIndex(block ast.Node, mdSource []byte) (int, int) {
 	return mdIdx, findLineNo(mdIdx, mdSource)
 }
 
-func ParseCommands(mdSource []byte) ([]commanddef.CommandDef, []string, error) {
+func ParseCommands(playbookPath string, mdSource []byte) ([]commanddef.CommandDef, []string, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 	)
@@ -172,7 +172,7 @@ func ParseCommands(mdSource []byte) ([]commanddef.CommandDef, []string, error) {
 					warnings = append(warnings, fmt.Sprintf("potential script heading found but bad script name '%s' is invalid (line %d)", defName, startLineNo))
 					continue
 				}
-				curDef = &commanddef.CommandDef{Name: defName, StartIndex: startIdx, StartLineNo: startLineNo}
+				curDef = &commanddef.CommandDef{PlaybookPath: playbookPath, Name: defName, StartIndex: startIdx, StartLineNo: startLineNo}
 			}
 		}
 

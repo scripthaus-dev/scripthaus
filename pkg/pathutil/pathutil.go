@@ -16,9 +16,9 @@ import (
 	"path"
 	"regexp"
 	"strings"
-)
 
-const PATH_VAR = "SCRIPTHAUS_PATH"
+	"github.com/scripthaus-dev/scripthaus/pkg/base"
+)
 
 // SCRIPTHAUS_PATH (defaults to $HOME/scripthaus) (note that "." is not in the path by default)
 // foo.md <- finds this playbook in the path
@@ -26,7 +26,7 @@ const PATH_VAR = "SCRIPTHAUS_PATH"
 
 // returns list of directories in SCRIPTHAUS_PATH
 func GetSCPath() []string {
-	scPath := os.Getenv(PATH_VAR)
+	scPath := os.Getenv(base.ScPathVarName)
 	if scPath == "" {
 		homePath := os.Getenv("HOME")
 		if homePath == "" {

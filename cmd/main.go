@@ -17,15 +17,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/scripthaus-dev/scripthaus/pkg/base"
 	"github.com/scripthaus-dev/scripthaus/pkg/commanddef"
 	"github.com/scripthaus-dev/scripthaus/pkg/helptext"
+	"github.com/scripthaus-dev/scripthaus/pkg/history"
 	"github.com/scripthaus-dev/scripthaus/pkg/mdparser"
 	"github.com/scripthaus-dev/scripthaus/pkg/pathutil"
 
 	"github.com/mattn/go-shellwords"
 )
-
-const ScriptHausVersion = "0.2.1"
 
 func runVersionCommand(gopts globalOptsType) {
 	printVersion()
@@ -68,7 +68,11 @@ type listOptsType struct {
 }
 
 // returns exitcode, error
-func runExecCmd(execCmd *exec.Cmd, cmdShortName string, warnings []string, gopts globalOptsType) (int, error) {
+func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalOptsType) (int, error) {
+	err := history.InsertHistoryItem(execItem.HItem, 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[^scripthaus] error trying to add run to history db: %v\n", err)
+	}
 	if gopts.Verbose > 0 && len(warnings) > 0 {
 		for _, warning := range warnings {
 			fmt.Fprintf(os.Stderr, "WARNING: %s\n", warning)
@@ -76,23 +80,29 @@ func runExecCmd(execCmd *exec.Cmd, cmdShortName string, warnings []string, gopts
 		fmt.Fprintf(os.Stderr, "\n")
 	}
 	startTs := time.Now()
-	err := execCmd.Start()
+	err = execItem.Cmd.Start()
 	if err != nil {
-		return 1, fmt.Errorf("cannot start command '%s': %w", cmdShortName, err)
+		return 1, fmt.Errorf("cannot start command '%s': %w", execItem.CmdShortName(), err)
 	}
-	err = execCmd.Wait()
+	err = execItem.Cmd.Wait()
 	cmdDuration := time.Since(startTs)
 	exitCode := 0
 	if err != nil {
 		exitCode = err.(*exec.ExitError).ExitCode()
 	}
+	execItem.HItem.ExitCode = exitCode
+	execItem.HItem.DurationMs = cmdDuration.Milliseconds()
 	if !gopts.Quiet {
 		var warningsStr string
 		if len(warnings) > 0 {
 			warningsStr = fmt.Sprintf(" (has warnings)")
 		}
 		fmt.Printf("\n")
-		fmt.Printf("[^scripthaus] ran '%s', duration=%0.3fs, exitcode=%d%s\n", cmdShortName, cmdDuration.Seconds(), exitCode, warningsStr)
+		fmt.Printf("[^scripthaus] ran '%s', duration=%0.3fs, exitcode=%d%s\n", execItem.CmdShortName(), cmdDuration.Seconds(), exitCode, warningsStr)
+	}
+	err = history.UpdateHistoryItem(execItem.HItem)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[^scripthaus] error trying to update history item in db: %v\n", err)
 	}
 	return exitCode, nil
 }
@@ -103,7 +113,7 @@ func resolvePlaybookCommand(playbookFile string, playbookScriptName string, gopt
 	if err != nil {
 		return "", nil, err
 	}
-	cmdDefs, warnings, err := mdparser.ParseCommands(mdSource)
+	cmdDefs, warnings, err := mdparser.ParseCommands(resolvedFileName, mdSource)
 	if err != nil {
 		return "", nil, err
 	}
@@ -139,7 +149,7 @@ func runRunCommand(gopts globalOptsType) (int, error) {
 		if err != nil {
 			return 1, err
 		}
-		return runExecCmd(execCmd, realScriptPath, nil, gopts)
+		return runExecItem(execCmd, nil, gopts)
 	} else {
 		resolvedFileName, foundCommand, err := resolvePlaybookCommand(script.PlaybookFile, script.PlaybookScript, gopts)
 		if foundCommand == nil || err != nil {
@@ -150,11 +160,11 @@ func runRunCommand(gopts globalOptsType) (int, error) {
 		if err != nil {
 			return 1, err
 		}
-		cmdName, execCmd, err := foundCommand.BuildExecCommand(ctx, fullScriptName, runOpts.RunSpec)
+		execItem, err := foundCommand.BuildExecCommand(ctx, fullScriptName, runOpts.RunSpec)
 		if err != nil {
 			return 1, err
 		}
-		return runExecCmd(execCmd, fmt.Sprintf("%s %s", cmdName, fullScriptName), foundCommand.Warnings, gopts)
+		return runExecItem(execItem, foundCommand.Warnings, gopts)
 	}
 }
 
@@ -317,7 +327,7 @@ func runListCommandInternal(gopts globalOptsType, playbookFile string) (int, err
 	if err != nil {
 		return 1, err
 	}
-	commands, warnings, err := mdparser.ParseCommands(mdSource)
+	commands, warnings, err := mdparser.ParseCommands(resolvedFileName, mdSource)
 	if err != nil {
 		return 1, err
 	}
@@ -538,7 +548,7 @@ func readCommandsFromFile(fileName string) ([]commanddef.CommandDef, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot read playbook file '%s': %w", fileName, err)
 	}
-	defs, _, err := mdparser.ParseCommands(fileBytes)
+	defs, _, err := mdparser.ParseCommands(fileName, fileBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +556,7 @@ func readCommandsFromFile(fileName string) ([]commanddef.CommandDef, error) {
 }
 
 func printVersion() {
-	fmt.Printf("[^scripthaus] v%s\n", ScriptHausVersion)
+	fmt.Printf("[^scripthaus] v%s\n", base.ScriptHausVersion)
 }
 
 type globalOptsType struct {

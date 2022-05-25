@@ -11,18 +11,22 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"strings"
+
+	"github.com/scripthaus-dev/scripthaus/pkg/history"
 )
 
 type CommandDef struct {
-	Name        string
-	Lang        string
-	ScriptText  string
-	Info        map[string]string
-	HelpText    string
-	ShortText   string
-	RawCodeText string
+	PlaybookPath string
+	Name         string
+	Lang         string
+	ScriptText   string
+	Info         map[string]string
+	HelpText     string
+	ShortText    string
+	RawCodeText  string
 
 	StartIndex  int
 	StartLineNo int // 1-indexed
@@ -31,6 +35,23 @@ type CommandDef struct {
 	RequireEnvVars      []string
 	DirectivesProcessed bool
 	Warnings            []string
+}
+
+type ExecItem struct {
+	SpecialMode    string
+	CmdName        string
+	Cmd            *exec.Cmd
+	FullScriptName string
+	HItem          *history.HistoryItem
+	RunType        string
+}
+
+func (item *ExecItem) CmdShortName() string {
+	if item.RunType == history.RunTypeScript {
+		return item.FullScriptName
+	} else {
+		return fmt.Sprintf("%s %s", item.CmdName, item.FullScriptName)
+	}
 }
 
 type SpecType struct {
@@ -86,15 +107,6 @@ func setStandardCmdOpts(cmd *exec.Cmd, runSpec SpecType) {
 	cmd.Env = makeFullEnv(runSpec)
 }
 
-func BuildScriptExecCommand(ctx context.Context, scriptPath string, runSpec SpecType) (*exec.Cmd, error) {
-	if runSpec.SpecialMode == "docker" {
-		return nil, fmt.Errorf("docker mode not supported for bare commands (must use a playbook)")
-	}
-	execCmd := exec.CommandContext(ctx, scriptPath, runSpec.ScriptArgs...)
-	setStandardCmdOpts(execCmd, runSpec)
-	return execCmd, nil
-}
-
 func makeOsFileFromString(s string) (*os.File, error) {
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -127,24 +139,24 @@ func IsValidScriptType(scriptType string) bool {
 	}
 }
 
-func (cdef *CommandDef) buildNormalCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (string, *exec.Cmd, error) {
+func (cdef *CommandDef) buildNormalCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (*ExecItem, error) {
 	if cdef.Lang == "sh" || cdef.Lang == "bash" {
 		args := append([]string{"-c", cdef.ScriptText, fullScriptName}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, cdef.Lang, args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return cdef.Lang, execCmd, nil
+		return &ExecItem{CmdName: cdef.Lang, Cmd: execCmd}, nil
 	} else if cdef.Lang == "python" || cdef.Lang == "python3" || cdef.Lang == "python2" {
 		args := append([]string{"-c", cdef.ScriptText}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, cdef.Lang, args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return cdef.Lang, execCmd, nil
+		return &ExecItem{CmdName: cdef.Lang, Cmd: execCmd}, nil
 	} else if cdef.Lang == "node" || cdef.Lang == "js" {
 		args := append([]string{"--eval", cdef.ScriptText, "--"}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, "node", args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return "node", execCmd, nil
+		return &ExecItem{CmdName: "node", Cmd: execCmd}, nil
 	}
-	return "", nil, fmt.Errorf("invalid command language '%s', not supported", cdef.Lang)
+	return nil, fmt.Errorf("invalid command language '%s', not supported", cdef.Lang)
 }
 
 func combine(rest ...interface{}) []string {
@@ -163,28 +175,31 @@ func combine(rest ...interface{}) []string {
 	return list
 }
 
-func (cdef *CommandDef) buildDockerCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (string, *exec.Cmd, error) {
+func (cdef *CommandDef) buildDockerCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (*ExecItem, error) {
 	if runSpec.DockerImage == "" {
-		return "", nil, fmt.Errorf("must supply --docker-image to build docker command")
+		return nil, fmt.Errorf("must supply --docker-image to build docker command")
 	}
 	dockerEnvArgs := getDockerEnvArgs(cdef, runSpec)
 	if cdef.Lang == "sh" || cdef.Lang == "bash" {
 		args := combine("run", runSpec.DockerOpts, dockerEnvArgs, runSpec.DockerImage, cdef.Lang, "-c", cdef.ScriptText, fullScriptName, runSpec.ScriptArgs)
 		execCmd := exec.CommandContext(ctx, "docker", args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return fmt.Sprintf("docker run %s %s", runSpec.DockerImage, cdef.Lang), execCmd, nil
+		cmdName := fmt.Sprintf("docker run %s %s", runSpec.DockerImage, cdef.Lang)
+		return &ExecItem{CmdName: cmdName, Cmd: execCmd}, nil
 	} else if cdef.Lang == "python" || cdef.Lang == "python3" || cdef.Lang == "python2" {
 		args := combine("run", runSpec.DockerOpts, dockerEnvArgs, runSpec.DockerImage, cdef.Lang, "-c", cdef.ScriptText, runSpec.ScriptArgs)
 		execCmd := exec.CommandContext(ctx, "docker", args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return fmt.Sprintf("docker run %s %s", runSpec.DockerImage, cdef.Lang), execCmd, nil
+		cmdName := fmt.Sprintf("docker run %s %s", runSpec.DockerImage, cdef.Lang)
+		return &ExecItem{CmdName: cmdName, Cmd: execCmd}, nil
 	} else if cdef.Lang == "node" || cdef.Lang == "js" {
 		args := combine("run", runSpec.DockerOpts, dockerEnvArgs, runSpec.DockerImage, "node", "--eval", cdef.ScriptText, "--", runSpec.ScriptArgs)
 		execCmd := exec.CommandContext(ctx, "docker", args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return fmt.Sprintf("docker run %s node", runSpec.DockerImage), execCmd, nil
+		cmdName := fmt.Sprintf("docker run %s node", runSpec.DockerImage)
+		return &ExecItem{CmdName: cmdName, Cmd: execCmd}, nil
 	}
-	return "", nil, fmt.Errorf("invalid command language '%s', not supported", cdef.Lang)
+	return nil, fmt.Errorf("invalid command language '%s', not supported", cdef.Lang)
 }
 
 var DirectiveRe = regexp.MustCompile("^\\s*(\\S+)(?:\\s+(.*))?$")
@@ -290,11 +305,41 @@ func (cdef *CommandDef) CheckCommand(fullScriptName string, runSpec SpecType) er
 	return nil
 }
 
-// returns (cmdName, *exec.Cmd, error)
-func (cdef *CommandDef) BuildExecCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (string, *exec.Cmd, error) {
+func (cdef *CommandDef) BuildExecCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (*ExecItem, error) {
+	var err error
+	var execItem *ExecItem
 	if runSpec.SpecialMode == "docker" {
-		return cdef.buildDockerCommand(ctx, fullScriptName, runSpec)
+		execItem, err = cdef.buildDockerCommand(ctx, fullScriptName, runSpec)
+		if execItem != nil {
+			execItem.SpecialMode = "docker"
+		}
 	} else {
-		return cdef.buildNormalCommand(ctx, fullScriptName, runSpec)
+		execItem, err = cdef.buildNormalCommand(ctx, fullScriptName, runSpec)
 	}
+	if err != nil {
+		return nil, err
+	}
+	execItem.RunType = history.RunTypePlaybook
+	execItem.FullScriptName = fullScriptName
+	execItem.HItem = history.BuildHistoryItem()
+	execItem.HItem.RunType = history.RunTypePlaybook
+	execItem.HItem.ScriptPath = cdef.PlaybookPath
+	execItem.HItem.ScriptFile = path.Base(cdef.PlaybookPath)
+	execItem.HItem.ScriptName = cdef.Name
+	execItem.HItem.ScriptType = cdef.Lang
+	return execItem, nil
+}
+
+func BuildScriptExecCommand(ctx context.Context, scriptPath string, runSpec SpecType) (*ExecItem, error) {
+	if runSpec.SpecialMode == "docker" {
+		return nil, fmt.Errorf("docker mode not supported for bare commands (must use a playbook)")
+	}
+	execCmd := exec.CommandContext(ctx, scriptPath, runSpec.ScriptArgs...)
+	setStandardCmdOpts(execCmd, runSpec)
+	execItem := &ExecItem{CmdName: scriptPath, Cmd: execCmd, FullScriptName: scriptPath, RunType: history.RunTypeScript}
+	execItem.HItem = history.BuildHistoryItem()
+	execItem.HItem.RunType = history.RunTypeScript
+	execItem.HItem.ScriptPath = scriptPath
+	execItem.HItem.ScriptFile = path.Base(scriptPath)
+	return execItem, nil
 }
