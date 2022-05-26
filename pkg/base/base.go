@@ -1,6 +1,6 @@
 package base
 
-const ScriptHausVersion = "0.2.1"
+const ScriptHausVersion = "0.3.0"
 const ScHomeVarName = "SCRIPTHAUS_HOME"
 const HomeVarName = "HOME"
 const DBFileName = "scripthaus.db"
