@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/alessio/shellescape"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/scripthaus-dev/scripthaus/pkg/base"
@@ -51,11 +52,10 @@ CREATE TABLE history (
 INSERT INTO scripthaus_meta (name, value) VALUES ('version', '1');
 `
 
-type DBMeta struct {
-	Version int
+type HistoryQuery struct {
+	ShowAll bool
+	ShowNum int
 }
-
-type HistoryMetaType struct{}
 
 type HistoryItem struct {
 	HistoryId  int64
@@ -74,6 +74,42 @@ type HistoryItem struct {
 	CmdLine    string
 	DurationMs int64 // update
 	ExitCode   int   // update
+}
+
+func (item *HistoryItem) DecodeCmdLine() []string {
+	if item.CmdLine == "" {
+		return nil
+	}
+	var rtn []string
+	err := json.Unmarshal([]byte(item.CmdLine), &rtn)
+	if err != nil {
+		return nil
+	}
+	return rtn
+}
+
+func (item *HistoryItem) CompactString() string {
+	return fmt.Sprintf("%5d  %s %s\n", item.HistoryId, item.ScriptString(), shellescape.QuoteCommand(item.DecodeCmdLine()))
+}
+
+func (item *HistoryItem) ScriptString() string {
+	if item.RunType == RunTypePlaybook {
+		return fmt.Sprintf("%s/%s", item.ScriptFile, item.ScriptName)
+	} else {
+		return item.ScriptFile
+	}
+}
+
+func (item *HistoryItem) FullString() string {
+	tsStr := time.UnixMilli(item.Ts).Format("[2006-01-02 15:04:05]")
+	line1 := fmt.Sprintf("%5d  %s %s %s\n", item.HistoryId, tsStr, item.ScriptString(), shellescape.QuoteCommand(item.DecodeCmdLine()))
+	line2 := fmt.Sprintf("       cwd: %s | duration: %0.3fms | exitcode: %d\n", item.Cwd, float64(item.DurationMs)/1000, item.ExitCode)
+	line3 := fmt.Sprintf("       user: %s | host: %s | ip: %s\n", item.SysUser, item.HostName, item.IpAddr)
+	return line1 + line2 + line3 + "\n"
+}
+
+func (item *HistoryItem) EncodeCmdLine(args []string) {
+	item.CmdLine = marshalJsonNoErr(args)
 }
 
 func ReNumberHistory() error {
@@ -183,9 +219,6 @@ func BuildHistoryItem() *HistoryItem {
 	osUser, _ := user.Current()
 	if osUser != nil {
 		rtn.SysUser = osUser.Username
-	}
-	if len(os.Args) >= 2 {
-		rtn.CmdLine = marshalJsonNoErr(os.Args[1:])
 	}
 	return &rtn
 }
@@ -387,4 +420,44 @@ func GetDBConn() (*sqlx.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func reverseHistorySlice(arr []*HistoryItem) {
+	for i, j := 0, len(arr)-1; i < j; i, j = i+1, j-1 {
+		arr[i], arr[j] = arr[j], arr[i]
+	}
+}
+
+func QueryHistory(query HistoryQuery) ([]*HistoryItem, error) {
+	sqlStr := `
+        SELECT * FROM history
+        WHERE TRUE
+        ORDER BY ts DESC
+`
+	if !query.ShowAll {
+		limit := 50
+		if query.ShowNum > 0 {
+			limit = query.ShowNum
+		}
+		sqlStr = sqlStr + " " + fmt.Sprintf("LIMIT %d", limit)
+	}
+	var rtn []*HistoryItem
+	db, err := GetDBConn()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Queryx(sqlStr)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query history db: %w", err)
+	}
+	for rows.Next() {
+		item := &HistoryItem{}
+		err = rows.StructScan(item)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read history (query scan): %w", err)
+		}
+		rtn = append(rtn, item)
+	}
+	reverseHistorySlice(rtn)
+	return rtn, nil
 }

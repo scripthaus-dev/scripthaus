@@ -379,6 +379,8 @@ func parseShowOpts(gopts globalOptsType) (showOptsType, error) {
 type historyOptsType struct {
 	ShowNum int
 	ShowAll bool
+
+	FormatFull bool
 }
 
 func parseHistoryOpts(opts globalOptsType) (historyOptsType, error) {
@@ -388,6 +390,10 @@ func parseHistoryOpts(opts globalOptsType) (historyOptsType, error) {
 		argStr := iter.Next()
 		if argStr == "--all" {
 			rtn.ShowAll = true
+			continue
+		}
+		if argStr == "--full" {
+			rtn.FormatFull = true
 			continue
 		}
 		if argStr == "-n" {
@@ -412,9 +418,26 @@ func parseHistoryOpts(opts globalOptsType) (historyOptsType, error) {
 }
 
 func runHistoryCommand(opts globalOptsType) (int, error) {
-	_, err := parseHistoryOpts(opts)
+	historyOpts, err := parseHistoryOpts(opts)
 	if err != nil {
 		return 1, err
+	}
+	query := history.HistoryQuery{
+		ShowAll: historyOpts.ShowAll,
+		ShowNum: historyOpts.ShowNum,
+	}
+	items, err := history.QueryHistory(query)
+	if err != nil {
+		return 1, err
+	}
+	for _, item := range items {
+		var str string
+		if historyOpts.FormatFull {
+			str = item.FullString()
+		} else {
+			str = item.CompactString()
+		}
+		fmt.Printf("%s", str)
 	}
 	return 0, nil
 }

@@ -11,6 +11,7 @@ Commands:
     list            - list commands available in playbook
     add             - quickly add a command to a playbook
     show            - show help and script text for a playbook script
+    history         - show command history
     help            - describe commands and usage
     help [command]  - specific help for particular command
 
@@ -105,6 +106,7 @@ Commands:
     list            - list commands available in playbook
     show            - show help and script text for a playbook script
     add             - adds a command from your history to playbook
+    history         - show command history
     help [command]  - describe commands and usage
 
 Resources:
@@ -148,6 +150,7 @@ The history command will show you the last 50 scripthaus commands.
 History Options:
     -n [num]                 - print last n commands
     --all                    - print all history
+    --full                   - show full history item (all fields, multiple lines)
 `))
 
 func replaceBacktick(str string) string {

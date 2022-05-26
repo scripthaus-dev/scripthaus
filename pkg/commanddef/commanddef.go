@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -323,10 +324,11 @@ func (cdef *CommandDef) BuildExecCommand(ctx context.Context, fullScriptName str
 	execItem.FullScriptName = fullScriptName
 	execItem.HItem = history.BuildHistoryItem()
 	execItem.HItem.RunType = history.RunTypePlaybook
-	execItem.HItem.ScriptPath = cdef.PlaybookPath
+	execItem.HItem.ScriptPath, _ = filepath.Abs(cdef.PlaybookPath)
 	execItem.HItem.ScriptFile = path.Base(cdef.PlaybookPath)
 	execItem.HItem.ScriptName = cdef.Name
 	execItem.HItem.ScriptType = cdef.Lang
+	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
 	return execItem, nil
 }
 
@@ -339,7 +341,8 @@ func BuildScriptExecCommand(ctx context.Context, scriptPath string, runSpec Spec
 	execItem := &ExecItem{CmdName: scriptPath, Cmd: execCmd, FullScriptName: scriptPath, RunType: history.RunTypeScript}
 	execItem.HItem = history.BuildHistoryItem()
 	execItem.HItem.RunType = history.RunTypeScript
-	execItem.HItem.ScriptPath = scriptPath
+	execItem.HItem.ScriptPath, _ = filepath.Abs(scriptPath)
 	execItem.HItem.ScriptFile = path.Base(scriptPath)
+	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
 	return execItem, nil
 }
