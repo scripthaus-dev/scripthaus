@@ -76,6 +76,27 @@ type HistoryItem struct {
 	ExitCode   int   // update
 }
 
+func (item *HistoryItem) MarshalJSON() ([]byte, error) {
+	jm := make(map[string]interface{})
+	jm["historyid"] = item.HistoryId
+	jm["ts"] = item.Ts
+	jm["date"] = time.UnixMilli(item.Ts).Format("2006-01-02T15:04:05")
+	jm["version"] = item.ScVersion
+	jm["runtype"] = item.RunType
+	jm["scriptpath"] = item.ScriptPath
+	jm["scriptfile"] = item.ScriptFile
+	jm["scriptname"] = item.ScriptName
+	jm["scripttype"] = item.ScriptType
+	jm["cwd"] = item.Cwd
+	jm["hostname"] = item.HostName
+	jm["ipaddr"] = item.IpAddr
+	jm["sysuser"] = item.SysUser
+	jm["cmdline"] = item.CmdLine
+	jm["durationms"] = item.DurationMs
+	jm["exitcode"] = item.ExitCode
+	return json.Marshal(jm)
+}
+
 func (item *HistoryItem) DecodeCmdLine() []string {
 	if item.CmdLine == "" {
 		return nil
@@ -126,9 +147,9 @@ func ReNumberHistory() error {
         UPDATE history
         SET historyid = (SELECT renum.newhid FROM history_renum renum WHERE renum.oldhid = history.historyid);
 `
-	db, err := GetDBConn()
+	db, err := getDBConn()
 	if err != nil {
-		return nil
+		return err
 	}
 	defer db.Close()
 	tx, err := db.Beginx()
@@ -147,6 +168,34 @@ func ReNumberHistory() error {
 	return nil
 }
 
+// returns (numRemoved, error)
+func RemoveHistoryItems(removeAll bool, startId int, endId int) (int, error) {
+	if startId < 0 || endId < 0 {
+		return 0, fmt.Errorf("invalid ids passed to scripthaus manage remove-history-range %d %d, both indexes must be positive", startId, endId)
+	}
+	if endId < startId {
+		return 0, nil
+	}
+	sqlStr := `DELETE FROM history`
+	if !removeAll {
+		sqlStr = fmt.Sprintf("%s WHERE historyid >= %d AND historyid <= %d", sqlStr, startId, endId)
+	}
+	db, err := getDBConn()
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	result, err := db.Exec(sqlStr)
+	if err != nil {
+		return 0, fmt.Errorf("cannot remove history items: %w", err)
+	}
+	numRemoved, err := result.RowsAffected()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: history items removed, but error getting number of rows affected: %w", err)
+	}
+	return int(numRemoved), nil
+}
+
 func InsertHistoryItem(item *HistoryItem) error {
 	sqlStr := `
         INSERT INTO history 
@@ -154,9 +203,9 @@ func InsertHistoryItem(item *HistoryItem) error {
         VALUES 
             (NULL, :ts, :scversion, :runtype, :scriptpath, :scriptfile, :scriptname, :scripttype, :metadata, :cwd, :hostname, :ipaddr, :sysuser, :cmdline)
 `
-	db, err := GetDBConn()
+	db, err := getDBConn()
 	if err != nil {
-		return nil
+		return err
 	}
 	defer db.Close()
 	_, err = db.NamedExec(sqlStr, item)
@@ -173,10 +222,11 @@ func UpdateHistoryItem(item *HistoryItem) error {
             exitcode = :exitcode
         WHERE ts = :ts
 `
-	db, err := GetDBConn()
+	db, err := getDBConn()
 	if err != nil {
 		return err
 	}
+	defer db.Close()
 	_, err = db.NamedExec(sqlStr, item)
 	if err != nil {
 		return fmt.Errorf("cannot update db: %w", err)
@@ -289,6 +339,18 @@ func GetHistoryDBFileName() (string, error) {
 	return path.Join(scHome, base.DBFileName), nil
 }
 
+func RemoveDB() error {
+	dbFileName, err := GetHistoryDBFileName()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(dbFileName)
+	if err != nil {
+		return fmt.Errorf("cannot remove scripthaus db file '%s': %w", err)
+	}
+	return nil
+}
+
 func createDB() error {
 	scHomeDir, err := GetScHomeDir()
 	if err != nil {
@@ -397,7 +459,7 @@ func checkUpgradeDB(db *sqlx.DB) error {
 	return nil
 }
 
-func GetDBConn() (*sqlx.DB, error) {
+func getDBConn() (*sqlx.DB, error) {
 	dbFileName, err := GetHistoryDBFileName()
 	if err != nil {
 		return nil, err
@@ -442,10 +504,11 @@ func QueryHistory(query HistoryQuery) ([]*HistoryItem, error) {
 		sqlStr = sqlStr + " " + fmt.Sprintf("LIMIT %d", limit)
 	}
 	var rtn []*HistoryItem
-	db, err := GetDBConn()
+	db, err := getDBConn()
 	if err != nil {
 		return nil, err
 	}
+	defer db.Close()
 	rows, err := db.Queryx(sqlStr)
 	if err != nil {
 		return nil, fmt.Errorf("cannot query history db: %w", err)

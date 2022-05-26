@@ -12,6 +12,7 @@ Commands:
     add             - quickly add a command to a playbook
     show            - show help and script text for a playbook script
     history         - show command history
+    manage          - manage history items
     help            - describe commands and usage
     help [command]  - specific help for particular command
 
@@ -151,6 +152,22 @@ History Options:
     -n [num]                 - print last n commands
     --all                    - print all history
     --full                   - show full history item (all fields, multiple lines)
+    --json                   - output full records in JSON format (can process with jq)
+`))
+
+var ManageText = replaceBacktick(strings.TrimSpace(`
+Usage: scripthaus manage clear-history
+       scripthaus manage delete-db
+       scripthaus manage remove-history-range [start-id] [end-id]
+       scripthaus manage renumber-history
+
+The manage command contains commands to help manage the history database.
+
+clear-history        - will remove all the history items
+delete-db            - will completely delete the scripthaus history database (rm the file)
+remove-history-range - removes the history items between start-id and end-id inclusive
+renumber-history     - will renumber history items by timestamp (starting at 1)
+
 `))
 
 func replaceBacktick(str string) string {

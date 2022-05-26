@@ -51,6 +51,8 @@ func runHelpCommand(gopts globalOptsType, showVersion bool) {
 		fmt.Printf("\n%s\n\n", helptext.AddText)
 	} else if subHelpCommand == "history" {
 		fmt.Printf("\n%s\n\n", helptext.HistoryText)
+	} else if subHelpCommand == "manage" {
+		fmt.Printf("\n%s\n\n", helptext.ManageText)
 	} else if subHelpCommand == "version" {
 		fmt.Printf("\n%s\n\n", helptext.VersionText)
 	} else if subHelpCommand == "overview" {
@@ -381,6 +383,7 @@ type historyOptsType struct {
 	ShowAll bool
 
 	FormatFull bool
+	FormatJson bool
 }
 
 func parseHistoryOpts(opts globalOptsType) (historyOptsType, error) {
@@ -394,6 +397,10 @@ func parseHistoryOpts(opts globalOptsType) (historyOptsType, error) {
 		}
 		if argStr == "--full" {
 			rtn.FormatFull = true
+			continue
+		}
+		if argStr == "--json" {
+			rtn.FormatJson = true
 			continue
 		}
 		if argStr == "-n" {
@@ -430,14 +437,108 @@ func runHistoryCommand(opts globalOptsType) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	for _, item := range items {
-		var str string
-		if historyOpts.FormatFull {
-			str = item.FullString()
+	for idx, item := range items {
+		if historyOpts.FormatJson {
+			barr, err := item.MarshalJSON()
+			if err != nil {
+				continue
+			}
+			if idx == 0 {
+				fmt.Printf("[")
+			}
+			fmt.Printf("%s", string(barr))
+			if idx == len(items)-1 {
+				fmt.Printf("]\n")
+			} else {
+				fmt.Printf(",\n")
+			}
+			continue
+		} else if historyOpts.FormatFull {
+			str := item.FullString()
+			fmt.Printf("%s", str)
+			continue
 		} else {
-			str = item.CompactString()
+			str := item.CompactString()
+			fmt.Printf("%s", str)
+			continue
 		}
-		fmt.Printf("%s", str)
+	}
+	return 0, nil
+}
+
+type manageOptsType struct {
+	ManageCommand string
+	StartId       int
+	EndId         int
+}
+
+func parseManageOpts(opts globalOptsType) (manageOptsType, error) {
+	var rtn manageOptsType
+	iter := &OptsIter{Opts: opts.CommandArgs}
+	for iter.HasNext() {
+		argStr := iter.Next()
+		if isOption(argStr) {
+			return rtn, fmt.Errorf("invalid option '%s' passed to scripthaus manage", argStr)
+		}
+		rtn.ManageCommand = argStr
+		if rtn.ManageCommand == "remove-history-range" {
+			if iter.Pos+2 > len(iter.Opts) {
+				return rtn, fmt.Errorf("Usage: scripthaus manage remove-history-range [start-id] [end-id], not enough arguments passed")
+			}
+			var err error
+			startStr := iter.Next()
+			rtn.StartId, err = strconv.Atoi(startStr)
+			if err != nil {
+				return rtn, fmt.Errorf("invalid [start-id] '%s' passed to scripthaus manage remove-history-range: %w", startStr, err)
+			}
+			endStr := iter.Next()
+			rtn.EndId, err = strconv.Atoi(endStr)
+			if err != nil {
+				return rtn, fmt.Errorf("invalid [end-id] '%s' passed to scripthaus manage remove-history-range: %w", endStr, err)
+			}
+		}
+		if iter.HasNext() {
+			return rtn, fmt.Errorf("Usage: scripthaus manage, too many arguments passed, extras = '%s'", strings.Join(iter.Rest(), " "))
+		}
+	}
+	return rtn, nil
+}
+
+func runManageCommand(opts globalOptsType) (int, error) {
+	manageOpts, err := parseManageOpts(opts)
+	if err != nil {
+		return 1, err
+	}
+	if manageOpts.ManageCommand == "clear-history" {
+		numRemoved, err := history.RemoveHistoryItems(true, 0, 0)
+		if err != nil {
+			return 1, err
+		}
+		fmt.Printf("[^scripthaus] all %d history items removed\n\n", numRemoved)
+	} else if manageOpts.ManageCommand == "delete-db" {
+		err = history.RemoveDB()
+		if err != nil {
+			return 1, err
+		}
+		fmt.Printf("[^scripthaus] history db deleted\n\n")
+	} else if manageOpts.ManageCommand == "remove-history-range" {
+		numRemoved, err := history.RemoveHistoryItems(false, manageOpts.StartId, manageOpts.EndId)
+		if err != nil {
+			return 1, err
+		}
+		fmt.Printf("[^scripthaus] %d history items removed\n\n", numRemoved)
+	} else if manageOpts.ManageCommand == "renumber-history" {
+		err = history.ReNumberHistory()
+		if err != nil {
+			return 1, err
+		}
+		fmt.Printf("[^scripthaus] history items renumbered\n\n")
+	} else {
+		if manageOpts.ManageCommand == "" {
+			return 1, fmt.Errorf("no sub-command passed to scripthaus manage")
+		} else {
+			return 1, fmt.Errorf("invalid manage sub-command '%s'", manageOpts.ManageCommand)
+		}
 	}
 	return 0, nil
 }
@@ -715,6 +816,8 @@ func main() {
 		exitCode, err = runListCommand(gopts)
 	} else if gopts.CommandName == "history" {
 		exitCode, err = runHistoryCommand(gopts)
+	} else if gopts.CommandName == "manage" {
+		exitCode, err = runManageCommand(gopts)
 	} else {
 		runInvalidCommand(gopts)
 		os.Exit(1)
