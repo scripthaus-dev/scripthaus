@@ -9,6 +9,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -95,8 +96,8 @@ func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalO
 	if err != nil {
 		exitCode = err.(*exec.ExitError).ExitCode()
 	}
-	execItem.HItem.ExitCode = exitCode
-	execItem.HItem.DurationMs = cmdDuration.Milliseconds()
+	execItem.HItem.ExitCode = sql.NullInt64{Valid: true, Int64: int64(exitCode)}
+	execItem.HItem.DurationMs = sql.NullInt64{Valid: true, Int64: cmdDuration.Milliseconds()}
 	if !gopts.Quiet {
 		var warningsStr string
 		if len(warnings) > 0 {

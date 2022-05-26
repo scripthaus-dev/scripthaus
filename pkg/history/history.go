@@ -72,8 +72,8 @@ type HistoryItem struct {
 	IpAddr     string
 	SysUser    string
 	CmdLine    string
-	DurationMs int64 // update
-	ExitCode   int   // update
+	DurationMs sql.NullInt64 // update
+	ExitCode   sql.NullInt64 // update
 }
 
 func (item *HistoryItem) MarshalJSON() ([]byte, error) {
@@ -92,8 +92,12 @@ func (item *HistoryItem) MarshalJSON() ([]byte, error) {
 	jm["ipaddr"] = item.IpAddr
 	jm["sysuser"] = item.SysUser
 	jm["cmdline"] = item.CmdLine
-	jm["durationms"] = item.DurationMs
-	jm["exitcode"] = item.ExitCode
+	if item.DurationMs.Valid {
+		jm["durationms"] = item.DurationMs
+	}
+	if item.ExitCode.Valid {
+		jm["exitcode"] = item.ExitCode
+	}
 	return json.Marshal(jm)
 }
 
@@ -124,7 +128,14 @@ func (item *HistoryItem) ScriptString() string {
 func (item *HistoryItem) FullString() string {
 	tsStr := time.UnixMilli(item.Ts).Format("[2006-01-02 15:04:05]")
 	line1 := fmt.Sprintf("%5d  %s %s %s\n", item.HistoryId, tsStr, item.ScriptString(), shellescape.QuoteCommand(item.DecodeCmdLine()))
-	line2 := fmt.Sprintf("       cwd: %s | duration: %0.3fms | exitcode: %d\n", item.Cwd, float64(item.DurationMs)/1000, item.ExitCode)
+	line2 := fmt.Sprintf("       cwd: %s", item.Cwd)
+	if item.DurationMs.Valid {
+		line2 += fmt.Sprintf(" | duration: %0.3fms", float64(item.DurationMs.Int64)/1000)
+	}
+	if item.ExitCode.Valid {
+		line2 += fmt.Sprintf(" | exitcode: %d", item.ExitCode.Int64)
+	}
+	line2 += "\n"
 	line3 := fmt.Sprintf("       user: %s | host: %s | ip: %s\n", item.SysUser, item.HostName, item.IpAddr)
 	return line1 + line2 + line3 + "\n"
 }
