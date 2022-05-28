@@ -14,7 +14,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -115,9 +114,16 @@ func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalO
 
 // returns (resolvedFileName, foundCommand, err)
 func resolvePlaybookCommand(playbookFile string, playbookScriptName string, gopts globalOptsType) (string, *commanddef.CommandDef, error) {
-	resolvedFileName, mdSource, err := pathutil.ReadFileFromPath(playbookFile, "playbook")
+	resolvedFileName, err := pathutil.ResolvePlaybook(playbookFile)
 	if err != nil {
 		return "", nil, err
+	}
+	found, mdSource, err := pathutil.TryReadFile(resolvedFileName, "playbook", false)
+	if err != nil {
+		return "", nil, err
+	}
+	if !found {
+		return "", nil, fmt.Errorf("cannot find playbook '%s' (resolved to '%s')", playbookFile, resolvedFileName)
 	}
 	cmdDefs, warnings, err := mdparser.ParseCommands(resolvedFileName, mdSource)
 	if err != nil {
@@ -195,29 +201,26 @@ func resolveScript(cmdName string, scriptName string, curPlaybookFile string, al
 		if allowBarePlaybook {
 			return commanddef.ScriptDef{PlaybookFile: scriptName}, nil
 		}
-		return emptyRtn, fmt.Errorf("no playbook script specified, usage: %s %s/[script]", cmdName, scriptName)
+		return emptyRtn, fmt.Errorf("no playbook script specified, usage: %s %s::[script]", cmdName, scriptName)
 	}
-	if strings.Index(scriptName, "/") != -1 {
-		dirName, baseName := path.Split(scriptName)
-		dirFile := dirName[:len(dirName)-1]
-		if dirFile == "-" {
-			if !mdparser.IsValidScriptName(baseName) {
-				return emptyRtn, fmt.Errorf("invalid characters in playbook script name '%s'", baseName)
-			}
-			return commanddef.ScriptDef{PlaybookFile: "-", PlaybookScript: baseName}, nil
-		} else if path.Ext(dirFile) == ".md" {
-			// an ".md" file as a directory means this is a playbook
-			if !mdparser.IsValidScriptName(baseName) {
-				return emptyRtn, fmt.Errorf("invalid characters in playbook script name '%s'", baseName)
-			}
-			return commanddef.ScriptDef{PlaybookFile: dirFile, PlaybookScript: baseName}, nil
-		} else {
-			// "directory" is not a .md file.  So scriptName must be a standalone ScriptFile
-			return commanddef.ScriptDef{ScriptFile: scriptName}, nil
-		}
+	runType := pathutil.ScriptNameRunType(scriptName)
+	if runType == base.RunTypeScript {
+		return commanddef.ScriptDef{ScriptFile: scriptName}, nil
 	}
-	// no slash, so this must be a standalone script file
-	return commanddef.ScriptDef{ScriptFile: scriptName}, nil
+	playFile, playScript, err := pathutil.SplitScriptName(scriptName)
+	if err != nil {
+		return emptyRtn, err
+	}
+	if playFile == "" {
+		playFile = "."
+	}
+	if playScript == "" {
+		return emptyRtn, fmt.Errorf("playbook script name cannot be empty")
+	}
+	if !mdparser.IsValidScriptName(playScript) {
+		return emptyRtn, fmt.Errorf("invalid characters in playbook script name '%s'", playScript)
+	}
+	return commanddef.ScriptDef{PlaybookFile: playFile, PlaybookScript: playScript}, nil
 }
 
 func parseRunOpts(gopts globalOptsType) (commanddef.RunOptsType, error) {
@@ -682,7 +685,7 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 	if !commanddef.IsValidScriptType(addOpts.ScriptType) {
 		return 1, fmt.Errorf("must specify a valid script type ('%s' is not valid), must be one of: %s", addOpts.ScriptType, strings.Join(commanddef.ValidScriptTypes(), ", "))
 	}
-	resolvedFileName, err := pathutil.ResolveFileWithPath(addOpts.Script.PlaybookFile, "playbook")
+	resolvedFileName, err := pathutil.ResolvePlaybook(addOpts.Script.PlaybookFile)
 	if err != nil {
 		return 1, err
 	}

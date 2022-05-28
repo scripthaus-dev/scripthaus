@@ -181,24 +181,6 @@ func GetScHomeDir() (string, error) {
 	return scHome, nil
 }
 
-// SCRIPTHAUS_PATH (defaults to $HOME/scripthaus) (note that "." is not in the path by default)
-// foo.md <- finds this playbook in the path
-// ./foo.md <- finds thi playbook in local directory
-
-// returns list of directories in SCRIPTHAUS_PATH
-func GetSCPath() []string {
-	scPath := os.Getenv(base.ScPathVarName)
-	if scPath == "" {
-		homePath := os.Getenv("HOME")
-		if homePath == "" {
-			return nil
-		}
-		return []string{path.Join(homePath, "scripthaus")}
-	}
-	dirs := strings.Split(scPath, ":")
-	return dirs
-}
-
 // returns (found, error)
 func tryFindFile(fileName string, fileType string, ignorePermissionErr bool) (bool, error) {
 	finfo, err := os.Stat(fileName)
@@ -221,78 +203,11 @@ func ResolveFileWithPath(fileName string, fileType string) (string, error) {
 	if fileName == "-" || fileName == "<stdin>" {
 		return "<stdin>", nil
 	}
-	if strings.HasPrefix(fileName, ".../") {
-		baseName := strings.Replace(fileName, ".../", "", 1)
-		if baseName == "" || strings.HasSuffix(baseName, "/") {
-			return "", fmt.Errorf("invalid %s file path '%s' (no base file)", fileType, fileName)
-		}
-		workingDir, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("cannot get current working directory: %w", err)
-		}
-		parentDirs := getParentDirectories(workingDir)
-		for _, parentDir := range parentDirs {
-			fullPath := path.Join(parentDir, baseName)
-			found, err := tryFindFile(fullPath, fileType, true)
-			if found {
-				if err != nil {
-					return "", err
-				} else {
-					return fullPath, nil
-				}
-			}
-		}
+	found, err := tryFindFile(fileName, fileType, false)
+	if !found {
 		return "", fmt.Errorf("cannot find %s file '%s'", fileType, fileName)
 	}
-	if strings.Index(fileName, "/") != -1 {
-		found, err := tryFindFile(fileName, fileType, false)
-		if !found {
-			return "", fmt.Errorf("cannot find %s file '%s'", fileType, fileName)
-		}
-		return fileName, err
-	}
-	scPaths := GetSCPath()
-	hasDot := false
-	for _, scPath := range scPaths {
-		if scPath == "." {
-			hasDot = true
-		}
-		fullPath := path.Join(scPath, fileName)
-		found, err := tryFindFile(fullPath, fileType, false)
-		if found {
-			if err != nil {
-				return "", err
-			} else {
-				return fullPath, nil
-			}
-		}
-	}
-	if !hasDot && strings.Index(fileName, "/") == -1 {
-		found, _ := tryFindFile(fileName, fileType, false)
-		if found {
-			return "", fmt.Errorf("cannot find %s file '%s' (was found in cwd, maybe you meant './%s')", fileType, fileName, fileName)
-		}
-	}
-	return "", fmt.Errorf("cannot find %s file '%s'", fileType, fileName)
-}
-
-func getParentDirectories(dirName string) []string {
-	if !strings.HasPrefix(dirName, "/") {
-		// should only pass absolute paths
-		return nil
-	}
-	var dirs []string
-	for {
-		dirs = append(dirs, dirName)
-		if len(dirName) > 1 && strings.HasSuffix(dirName, "/") {
-			dirName = dirName[:len(dirName)-1]
-		}
-		if dirName == "" || dirName == "/" {
-			break
-		}
-		dirName = path.Dir(dirName)
-	}
-	return dirs
+	return fileName, err
 }
 
 const MaxShebangLine = 100
@@ -350,63 +265,4 @@ func TryReadFile(fullPath string, fileType string, ignorePermissionErr bool) (bo
 		return true, nil, fmt.Errorf("cannot read %s at '%s': %w", fileType, fullPath, err)
 	}
 	return true, rtnBytes, nil
-}
-
-// returns (real file name, contents, error)
-func ReadFileFromPath(fileName string, fileType string) (string, []byte, error) {
-	if fileName == "-" || fileName == "<stdin>" {
-		rtnBytes, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return "", nil, fmt.Errorf("cannot read from <stdin>: %w", err)
-		}
-		return "<stdin>", rtnBytes, nil
-	}
-	if strings.HasPrefix(fileName, ".../") {
-		workingDir, err := os.Getwd()
-		if err != nil {
-			return "", nil, fmt.Errorf("cannot get current working directory: %w", err)
-		}
-		parentDirs := getParentDirectories(workingDir)
-		baseName := strings.Replace(fileName, ".../", "", 1)
-		if baseName == "" || strings.HasSuffix(baseName, "/") {
-			return "", nil, fmt.Errorf("invalid %s path '%s' (no base file)", fileType, fileName)
-		}
-		for _, parentDir := range parentDirs {
-			fullPath := path.Join(parentDir, baseName)
-			found, rtnBytes, err := TryReadFile(fullPath, fileType, true)
-			if found {
-				return fullPath, rtnBytes, err
-			}
-		}
-	}
-
-	if strings.Index(fileName, "/") != -1 {
-		// this is an absolute value, read from FS
-		found, rtnBytes, err := TryReadFile(fileName, fileType, false)
-		if found {
-			return fileName, rtnBytes, err
-		}
-		return "", nil, fmt.Errorf("cannot find %s at '%s' (file not found)", fileType, fileName)
-	}
-
-	// look up in path (using SCRIPTHAUS_PATH)
-	scPaths := GetSCPath()
-	hasDot := false
-	for _, scPath := range scPaths {
-		if scPath == "." {
-			hasDot = true
-		}
-		fullPath := path.Join(scPath, fileName)
-		found, rtnBytes, err := TryReadFile(fullPath, fileType, false)
-		if found {
-			return fullPath, rtnBytes, err
-		}
-	}
-	if !hasDot && strings.Index(fileName, "/") == -1 {
-		found, _, _ := TryReadFile(fileName, fileType, false)
-		if found {
-			return "", nil, fmt.Errorf("cannot find %s file '%s' (was found in cwd, maybe you meant './%s')", fileType, fileName, fileName)
-		}
-	}
-	return "", nil, fmt.Errorf("cannot find %s file '%s'", fileType, fileName)
 }
