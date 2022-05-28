@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/scripthaus-dev/scripthaus/pkg/base"
 	"github.com/scripthaus-dev/scripthaus/pkg/history"
 )
 
@@ -48,7 +49,7 @@ type ExecItem struct {
 }
 
 func (item *ExecItem) CmdShortName() string {
-	if item.RunType == history.RunTypeScript {
+	if item.RunType == base.RunTypeScript {
 		return item.FullScriptName
 	} else {
 		return fmt.Sprintf("%s %s", item.CmdName, item.FullScriptName)
@@ -320,10 +321,10 @@ func (cdef *CommandDef) BuildExecCommand(ctx context.Context, fullScriptName str
 	if err != nil {
 		return nil, err
 	}
-	execItem.RunType = history.RunTypePlaybook
+	execItem.RunType = base.RunTypePlaybook
 	execItem.FullScriptName = fullScriptName
 	execItem.HItem = history.BuildHistoryItem()
-	execItem.HItem.RunType = history.RunTypePlaybook
+	execItem.HItem.RunType = base.RunTypePlaybook
 	execItem.HItem.ScriptPath, _ = filepath.Abs(cdef.PlaybookPath)
 	execItem.HItem.ScriptFile = path.Base(cdef.PlaybookPath)
 	execItem.HItem.ScriptName = cdef.Name
@@ -338,9 +339,9 @@ func BuildScriptExecCommand(ctx context.Context, scriptPath string, runSpec Spec
 	}
 	execCmd := exec.CommandContext(ctx, scriptPath, runSpec.ScriptArgs...)
 	setStandardCmdOpts(execCmd, runSpec)
-	execItem := &ExecItem{CmdName: scriptPath, Cmd: execCmd, FullScriptName: scriptPath, RunType: history.RunTypeScript}
+	execItem := &ExecItem{CmdName: scriptPath, Cmd: execCmd, FullScriptName: scriptPath, RunType: base.RunTypeScript}
 	execItem.HItem = history.BuildHistoryItem()
-	execItem.HItem.RunType = history.RunTypeScript
+	execItem.HItem.RunType = base.RunTypeScript
 	execItem.HItem.ScriptPath, _ = filepath.Abs(scriptPath)
 	execItem.HItem.ScriptFile = path.Base(scriptPath)
 	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)

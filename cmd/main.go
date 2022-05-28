@@ -239,16 +239,17 @@ func parseRunOpts(gopts globalOptsType) (commanddef.RunOptsType, error) {
 			if !iter.HasNext() {
 				return rtn, fmt.Errorf("'%s [docker-opts]' missing options", argStr)
 			}
-			dockerOpts, err := shellwords.Parse(iter.Next())
+			dockerOptsStr := iter.Next()
+			dockerOpts, err := shellwords.Parse(dockerOptsStr)
 			if err != nil {
-				return rtn, fmt.Errorf("%s '%s', error splitting docker-opts: %w", err)
+				return rtn, fmt.Errorf("%s '%s', error splitting docker-opts: %w", argStr, dockerOptsStr, err)
 			}
 			rtn.RunSpec.DockerOpts = dockerOpts
 			continue
 		}
 		if argStr == "--env" {
 			if !iter.HasNext() {
-				return rtn, fmt.Errorf("'%s \"[VAR=VAL]\" or %s file.env' missing value", argStr)
+				return rtn, fmt.Errorf("'%s \"[VAR=VAL]\" or %s file.env' missing value", argStr, argStr)
 			}
 			envVal := iter.Next()
 			if strings.Index(envVal, "=") != -1 {
@@ -329,18 +330,33 @@ func parseListOpts(gopts globalOptsType) (listOptsType, error) {
 }
 
 func runListCommandInternal(gopts globalOptsType, playbookFile string) (int, error) {
-	resolvedFileName, mdSource, err := pathutil.ReadFileFromPath(playbookFile, "playbook")
+	resolvedFileName, err := pathutil.ResolvePlaybook(playbookFile)
 	if err != nil {
 		return 1, err
+	}
+	found, mdSource, err := pathutil.TryReadFile(resolvedFileName, "playbook", false)
+	if err != nil {
+		return 1, err
+	}
+	if !found {
+		return 1, fmt.Errorf("cannot find playbook '%s' (resolved to '%s')", playbookFile, resolvedFileName)
 	}
 	commands, warnings, err := mdparser.ParseCommands(resolvedFileName, mdSource)
 	if err != nil {
 		return 1, err
 	}
 	printWarnings(gopts, warnings, true)
-	fmt.Printf("%s\n", resolvedFileName)
+	if playbookFile == resolvedFileName {
+		fmt.Printf("%s\n", playbookFile)
+	} else {
+		fmt.Printf("%s (%s)\n", playbookFile, resolvedFileName)
+	}
 	for _, command := range commands {
-		fmt.Printf("  %s/%s\n", playbookFile, command.Name)
+		if base.PlaybookPrefixRe.MatchString(playbookFile) {
+			fmt.Printf("  %s%s\n", playbookFile, command.Name)
+		} else {
+			fmt.Printf("  %s::%s\n", playbookFile, command.Name)
+		}
 	}
 	return 0, nil
 }
@@ -645,7 +661,7 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 			return 1, fmt.Errorf("reading from <stdin>: %w", err)
 		}
 		if len(scriptTextBytes) == 0 {
-			return 1, fmt.Errorf("reading script-text from <stdin>, but got empty string", err)
+			return 1, fmt.Errorf("reading script-text from <stdin>, but got empty string")
 		}
 		realScriptText = string(scriptTextBytes)
 	} else {
@@ -700,11 +716,11 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 		}
 	}()
 	if err != nil {
-		fmt.Printf("cannot open playbook '%s' for append: %w", resolvedFileName, err)
+		fmt.Printf("cannot open playbook '%s' for append: %v", resolvedFileName, err)
 	}
 	_, err = fd.WriteString(buf.String())
 	if err != nil {
-		fmt.Printf("cannot write to playbook '%s': %w", resolvedFileName, err)
+		fmt.Printf("cannot write to playbook '%s': %v", resolvedFileName, err)
 	}
 	return 0, nil
 }

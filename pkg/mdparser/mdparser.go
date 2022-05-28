@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/scripthaus-dev/scripthaus/pkg/base"
 	"github.com/scripthaus-dev/scripthaus/pkg/commanddef"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -53,7 +54,7 @@ func mdIndexBackToNewLine(mdIdx int, mdSource []byte) int {
 var validNameRe = regexp.MustCompile("^[a-zA-Z_][a-zA-Z0-9_-]*$")
 
 func IsValidScriptName(name string) bool {
-	return validNameRe.MatchString(name)
+	return base.PlaybookScriptNameRe.MatchString(name)
 }
 
 func parseInfo(info string) (string, map[string]string) {

@@ -18,11 +18,10 @@ import (
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/scripthaus-dev/scripthaus/pkg/base"
+	"github.com/scripthaus-dev/scripthaus/pkg/pathutil"
 )
 
 const VersionMdKey = "version"
-const RunTypePlaybook = "playbook"
-const RunTypeScript = "script"
 
 var createDBSql string = `
 CREATE TABLE scripthaus_meta (
@@ -118,7 +117,7 @@ func (item *HistoryItem) CompactString() string {
 }
 
 func (item *HistoryItem) ScriptString() string {
-	if item.RunType == RunTypePlaybook {
+	if item.RunType == base.RunTypePlaybook {
 		return fmt.Sprintf("%s/%s", item.ScriptFile, item.ScriptName)
 	} else {
 		return item.ScriptFile
@@ -202,7 +201,7 @@ func RemoveHistoryItems(removeAll bool, startId int, endId int) (int, error) {
 	}
 	numRemoved, err := result.RowsAffected()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: history items removed, but error getting number of rows affected: %w", err)
+		fmt.Fprintf(os.Stderr, "WARNING: history items removed, but error getting number of rows affected: %v", err)
 	}
 	return int(numRemoved), nil
 }
@@ -330,20 +329,8 @@ func DebugDBFileError() error {
 	return nil
 }
 
-func GetScHomeDir() (string, error) {
-	scHome := os.Getenv(base.ScHomeVarName)
-	if scHome == "" {
-		homeVar := os.Getenv(base.HomeVarName)
-		if homeVar == "" {
-			return "", fmt.Errorf("Cannot resolve scripthaus home directory (SCRIPTHAUS_HOME and HOME not set)")
-		}
-		scHome = path.Join(homeVar, "scripthaus")
-	}
-	return scHome, nil
-}
-
 func GetHistoryDBFileName() (string, error) {
-	scHome, err := GetScHomeDir()
+	scHome, err := pathutil.GetScHomeDir()
 	if err != nil {
 		return "", err
 	}
@@ -357,13 +344,13 @@ func RemoveDB() error {
 	}
 	err = os.Remove(dbFileName)
 	if err != nil {
-		return fmt.Errorf("cannot remove scripthaus db file '%s': %w", err)
+		return fmt.Errorf("cannot remove scripthaus db file '%s': %v", dbFileName, err)
 	}
 	return nil
 }
 
 func createDB() error {
-	scHomeDir, err := GetScHomeDir()
+	scHomeDir, err := pathutil.GetScHomeDir()
 	if err != nil {
 		return fmt.Errorf("cannot create history db: %w", err)
 	}
@@ -377,7 +364,7 @@ func createDB() error {
 	} else if err != nil {
 		return fmt.Errorf("cannot stat scripthaus home directory '%s': %w", scHomeDir, err)
 	} else if !homeDirFinfo.IsDir() {
-		return fmt.Errorf("invalid scripthaus home directory '%s' is a file (not a directory)", scHomeDir, err)
+		return fmt.Errorf("invalid scripthaus home directory '%s' is a file (not a directory)", scHomeDir)
 	}
 	dbFileName, err := GetHistoryDBFileName()
 	if err != nil {
