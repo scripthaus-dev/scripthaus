@@ -114,7 +114,7 @@ func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalO
 
 // returns (resolvedFileName, foundCommand, err)
 func resolvePlaybookCommand(playbookFile string, playbookScriptName string, gopts globalOptsType) (string, *commanddef.CommandDef, error) {
-	resolvedFileName, err := pathutil.ResolvePlaybook(playbookFile)
+	resolvedFileName, err := pathutil.DefaultResolver().ResolvePlaybook(playbookFile)
 	if err != nil {
 		return "", nil, err
 	}
@@ -153,7 +153,7 @@ func runRunCommand(gopts globalOptsType) (int, error) {
 	ctx := context.Background()
 	script := runOpts.Script
 	if script.ScriptFile != "" {
-		realScriptPath, err := pathutil.ResolveFileWithPath(script.ScriptFile, "script")
+		realScriptPath, err := pathutil.DefaultResolver().ResolveFileWithPath(script.ScriptFile, "script")
 		if err != nil {
 			return 1, err
 		}
@@ -333,7 +333,7 @@ func parseListOpts(gopts globalOptsType) (listOptsType, error) {
 }
 
 func runListCommandInternal(gopts globalOptsType, playbookFile string) (int, error) {
-	resolvedFileName, err := pathutil.ResolvePlaybook(playbookFile)
+	resolvedFileName, err := pathutil.DefaultResolver().ResolvePlaybook(playbookFile)
 	if err != nil {
 		return 1, err
 	}
@@ -686,7 +686,7 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 	if !commanddef.IsValidScriptType(addOpts.ScriptType) {
 		return 1, fmt.Errorf("must specify a valid script type ('%s' is not valid), must be one of: %s", addOpts.ScriptType, strings.Join(commanddef.ValidScriptTypes(), ", "))
 	}
-	resolvedFileName, err := pathutil.ResolvePlaybook(addOpts.Script.PlaybookFile)
+	resolvedFileName, err := pathutil.DefaultResolver().ResolvePlaybook(addOpts.Script.PlaybookFile)
 	if err != nil {
 		return 1, err
 	}

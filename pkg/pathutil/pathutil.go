@@ -21,8 +21,46 @@ import (
 )
 
 var DefaultScFile = "scripthaus.md"
-
 var dotPrefixRe = regexp.MustCompile("^([.]+)[a-zA-Z_]")
+
+// sets overrides for testing
+type Resolver struct {
+	TestMode  bool
+	Cwd       string
+	ScHomeDir string
+	TestFiles []string
+}
+
+type resolveStatInfo struct {
+	IsDir bool
+}
+
+// returns IsDir(), err
+func (r Resolver) statInfo(fileName string) (resolveStatInfo, error) {
+	finfo, err := os.Stat(fileName)
+	if err != nil {
+		return resolveStatInfo{}, err
+	}
+	return resolveStatInfo{IsDir: finfo.IsDir()}, nil
+}
+
+func (r Resolver) Getwd() (string, error) {
+	if r.Cwd != "" {
+		return r.Cwd, nil
+	}
+	return os.Getwd()
+}
+
+func (r Resolver) GetScHomeDir() (string, error) {
+	if r.ScHomeDir != "" {
+		return r.ScHomeDir, nil
+	}
+	return GetScHomeDir()
+}
+
+func DefaultResolver() Resolver {
+	return Resolver{}
+}
 
 func ScriptNameRunType(scriptName string) string {
 	if strings.Index(scriptName, "::") != -1 {
@@ -62,13 +100,13 @@ func parentDir(dirName string) string {
 	return path.Dir(dirName)
 }
 
-func findScRootDir(curDir string, allowCurrent bool) (string, error) {
+func (r Resolver) findScRootDir(curDir string, allowCurrent bool) (string, error) {
 	if !allowCurrent {
 		curDir = parentDir(curDir)
 	}
 	for curDir != "" {
 		fileName := path.Join(curDir, DefaultScFile)
-		found, err := tryFindFile(fileName, "playbook", true)
+		found, err := r.tryFindFile(fileName, "playbook", true)
 		if err != nil {
 			return "", err
 		}
@@ -80,17 +118,17 @@ func findScRootDir(curDir string, allowCurrent bool) (string, error) {
 	return "", fs.ErrNotExist
 }
 
-func resolvePlaybookInDir(rawName string, curDir string, playbookName string) (string, error) {
+func (r Resolver) resolvePlaybookInDir(rawName string, curDir string, playbookName string) (string, error) {
 	if playbookName == "" {
 		playbookName = DefaultScFile
 	} else if strings.HasSuffix(playbookName, "/") {
 		playbookName = playbookName + DefaultScFile
 	}
 	fullPath := path.Join(curDir, playbookName)
-	finfo, err := os.Stat(fullPath)
-	if err == nil && finfo.IsDir() {
+	finfo, err := r.statInfo(fullPath)
+	if err == nil && finfo.IsDir {
 		fullPath = path.Join(fullPath, DefaultScFile)
-		finfo, err = os.Stat(fullPath)
+		finfo, err = r.statInfo(fullPath)
 	}
 	if rawName == "" {
 		rawName = "<default>"
@@ -104,18 +142,18 @@ func resolvePlaybookInDir(rawName string, curDir string, playbookName string) (s
 		}
 		return "", fmt.Errorf("playbook '%s' (resolved to '%s'), stat error: %w", rawName, fullPath, err)
 	}
-	if finfo.IsDir() {
+	if finfo.IsDir {
 		return "", fmt.Errorf("playbook '%s' (resolved to '%s'), is a directory not a file", rawName, fullPath)
 	}
 	return fullPath, nil
 }
 
 // prefix is either "^", "[.]*" (can be empty).  empty prefix is the same as "."
-func findPrefixDir(prefix string) (string, error) {
+func (r Resolver) findPrefixDir(prefix string) (string, error) {
 	if prefix == "^" {
-		return GetScHomeDir()
+		return r.GetScHomeDir()
 	}
-	curDir, err := os.Getwd()
+	curDir, err := r.Getwd()
 	if err != nil {
 		return "", err
 	}
@@ -127,7 +165,7 @@ func findPrefixDir(prefix string) (string, error) {
 			return "", fmt.Errorf("invalid prefix character '%c'", prefix[depth])
 		}
 		lastCurDir := curDir
-		curDir, err = findScRootDir(curDir, (depth == 0))
+		curDir, err = r.findScRootDir(curDir, (depth == 0))
 		if errors.Is(err, fs.ErrNotExist) {
 			if depth == 0 {
 				return "", fmt.Errorf("cannot find scripthaus root (scripthaus.md file) in any parent directory above '%s'", lastCurDir)
@@ -141,7 +179,7 @@ func findPrefixDir(prefix string) (string, error) {
 	return curDir, nil
 }
 
-func ResolvePlaybook(playbookName string) (string, error) {
+func (r Resolver) ResolvePlaybook(playbookName string) (string, error) {
 	if playbookName == "-" {
 		// <stdin>
 		return "-", nil
@@ -149,8 +187,9 @@ func ResolvePlaybook(playbookName string) (string, error) {
 	prefixMatch := base.PlaybookPrefixRe.FindStringSubmatch(playbookName)
 	if prefixMatch != nil {
 		// covers ^, [.]+, and also plain non-prefixed names
-		if prefixMatch[1] == "" {
-			found, err := tryFindFile(playbookName, "playbook", false)
+		prefix := prefixMatch[1]
+		if prefix == "" {
+			found, err := r.tryFindFile(playbookName, "playbook", false)
 			if err != nil {
 				return "", err
 			}
@@ -158,11 +197,11 @@ func ResolvePlaybook(playbookName string) (string, error) {
 				return "./" + playbookName, nil
 			}
 		}
-		dirName, err := findPrefixDir(prefixMatch[1])
+		dirName, err := r.findPrefixDir(prefix)
 		if err != nil {
 			return "", fmt.Errorf("cannot resolve directory for playbook '%s': %w", playbookName, err)
 		}
-		return resolvePlaybookInDir(playbookName, dirName, playbookName[len(prefixMatch[1]):])
+		return r.resolvePlaybookInDir(playbookName, dirName, playbookName[len(prefix):])
 	}
 	if strings.HasPrefix(playbookName, "@") {
 		// future namespaces
@@ -173,7 +212,7 @@ func ResolvePlaybook(playbookName string) (string, error) {
 		lastSlash := strings.LastIndex(playbookName, "/")
 		dirName := playbookName[:lastSlash+1]
 		baseName := playbookName[lastSlash+1:]
-		return resolvePlaybookInDir(playbookName, dirName, baseName)
+		return r.resolvePlaybookInDir(playbookName, dirName, baseName)
 	}
 	return "", fmt.Errorf("invalid playbook name '%s'", playbookName)
 }
@@ -190,9 +229,23 @@ func GetScHomeDir() (string, error) {
 	return scHome, nil
 }
 
+func (r Resolver) tryFindFiles(dirName string, names []string, fileType string, ignorePermissionErr bool) (bool, string, error) {
+	for _, fileName := range names {
+		fullName := path.Join(dirName, fileName)
+		found, err := r.tryFindFile(fullName, fileType, ignorePermissionErr)
+		if err != nil {
+			return false, "", err
+		}
+		if found {
+			return true, fileName, nil
+		}
+	}
+	return false, "", nil
+}
+
 // returns (found, error)
-func tryFindFile(fileName string, fileType string, ignorePermissionErr bool) (bool, error) {
-	finfo, err := os.Stat(fileName)
+func (r Resolver) tryFindFile(fileName string, fileType string, ignorePermissionErr bool) (bool, error) {
+	finfo, err := r.statInfo(fileName)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
@@ -202,17 +255,17 @@ func tryFindFile(fileName string, fileType string, ignorePermissionErr bool) (bo
 		}
 		return true, fmt.Errorf("cannot access %s file at '%s': %w", fileType, fileName, err)
 	}
-	if finfo.IsDir() {
+	if finfo.IsDir {
 		return false, nil
 	}
 	return true, err
 }
 
-func ResolveFileWithPath(fileName string, fileType string) (string, error) {
+func (r Resolver) ResolveFileWithPath(fileName string, fileType string) (string, error) {
 	if fileName == "-" || fileName == "<stdin>" {
 		return "<stdin>", nil
 	}
-	found, err := tryFindFile(fileName, fileType, false)
+	found, err := r.tryFindFile(fileName, fileType, false)
 	if !found {
 		return "", fmt.Errorf("cannot find %s file '%s'", fileType, fileName)
 	}
