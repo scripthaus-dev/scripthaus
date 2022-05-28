@@ -149,6 +149,15 @@ func ResolvePlaybook(playbookName string) (string, error) {
 	prefixMatch := base.PlaybookPrefixRe.FindStringSubmatch(playbookName)
 	if prefixMatch != nil {
 		// covers ^, [.]+, and also plain non-prefixed names
+		if prefixMatch[1] == "" {
+			found, err := tryFindFile(playbookName, "playbook", false)
+			if err != nil {
+				return "", err
+			}
+			if found {
+				return "./" + playbookName, nil
+			}
+		}
 		dirName, err := findPrefixDir(prefixMatch[1])
 		if err != nil {
 			return "", fmt.Errorf("cannot resolve directory for playbook '%s': %w", playbookName, err)

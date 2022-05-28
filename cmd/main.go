@@ -355,7 +355,8 @@ func runListCommandInternal(gopts globalOptsType, playbookFile string) (int, err
 		fmt.Printf("%s (%s)\n", playbookFile, resolvedFileName)
 	}
 	for _, command := range commands {
-		if base.PlaybookPrefixRe.MatchString(playbookFile) {
+		prefixMatch := base.PlaybookPrefixRe.FindStringSubmatch(playbookFile)
+		if prefixMatch != nil && len(prefixMatch[1]) == len(playbookFile) {
 			fmt.Printf("  %s%s\n", playbookFile, command.Name)
 		} else {
 			fmt.Printf("  %s::%s\n", playbookFile, command.Name)
