@@ -25,10 +25,12 @@ var dotPrefixRe = regexp.MustCompile("^([.]+)[a-zA-Z_]")
 
 // sets overrides for testing
 type Resolver struct {
-	TestMode  bool
-	Cwd       string
-	ScHomeDir string
-	TestFiles []string
+	TestMode        bool
+	Cwd             string
+	ScHomeDir       string
+	TestFiles       []string
+	TestDirs        []string
+	TestBadPermDirs []string
 }
 
 type resolveStatInfo struct {
@@ -37,11 +39,42 @@ type resolveStatInfo struct {
 
 // returns IsDir(), err
 func (r Resolver) statInfo(fileName string) (resolveStatInfo, error) {
-	finfo, err := os.Stat(fileName)
-	if err != nil {
-		return resolveStatInfo{}, err
+	if !r.TestMode {
+		finfo, err := os.Stat(fileName)
+		if err != nil {
+			return resolveStatInfo{}, err
+		}
+		return resolveStatInfo{IsDir: finfo.IsDir()}, nil
+	} else {
+		if !strings.HasPrefix(fileName, "/") {
+			fileName = path.Join(r.Cwd, fileName)
+		}
+		if inSlice(fileName, r.TestFiles) {
+			return resolveStatInfo{}, nil
+		}
+		if len(fileName) > 1 && strings.HasSuffix(fileName, "/") {
+			fileName = fileName[:len(fileName)-1]
+		}
+		if inSlice(fileName, r.TestDirs) {
+			return resolveStatInfo{IsDir: true}, nil
+		}
+		baseName := path.Base(fileName)
+		for _, badDir := range r.TestBadPermDirs {
+			if fileName == badDir || path.Join(badDir, baseName) == fileName {
+				return resolveStatInfo{}, fs.ErrPermission
+			}
+		}
+		return resolveStatInfo{}, fs.ErrNotExist
 	}
-	return resolveStatInfo{IsDir: finfo.IsDir()}, nil
+}
+
+func inSlice(s string, arr []string) bool {
+	for _, val := range arr {
+		if s == val {
+			return true
+		}
+	}
+	return false
 }
 
 func (r Resolver) Getwd() (string, error) {
@@ -189,12 +222,17 @@ func (r Resolver) ResolvePlaybook(playbookName string) (string, error) {
 		// covers ^, [.]+, and also plain non-prefixed names
 		prefix := prefixMatch[1]
 		if prefix == "" {
-			found, err := r.tryFindFile(playbookName, "playbook", false)
+			curDir, err := r.Getwd()
+			if err != nil {
+				return "", fmt.Errorf("cannot get current working directory: %w", err)
+			}
+			fullPath := path.Join(curDir, playbookName)
+			found, err := r.tryFindFile(fullPath, "playbook", false)
 			if err != nil {
 				return "", err
 			}
 			if found {
-				return "./" + playbookName, nil
+				return fullPath, nil
 			}
 		}
 		dirName, err := r.findPrefixDir(prefix)
@@ -209,9 +247,21 @@ func (r Resolver) ResolvePlaybook(playbookName string) (string, error) {
 	}
 	if strings.HasPrefix(playbookName, "./") || strings.HasPrefix(playbookName, "/") || strings.HasPrefix(playbookName, "../") {
 		// absolute/relative path
-		lastSlash := strings.LastIndex(playbookName, "/")
-		dirName := playbookName[:lastSlash+1]
-		baseName := playbookName[lastSlash+1:]
+		var fullPath string
+		if strings.HasPrefix(playbookName, "/") {
+			fullPath = playbookName
+		} else {
+			curDir, err := r.Getwd()
+			if err != nil {
+				return "", fmt.Errorf("cannot get current working directory: %w", err)
+			}
+			fullPath = path.Clean(path.Join(curDir, playbookName))
+		}
+		if strings.HasSuffix(fullPath, "/") {
+			return r.resolvePlaybookInDir(playbookName, fullPath, "")
+		}
+		dirName := path.Dir(fullPath)
+		baseName := path.Base(fullPath)
 		return r.resolvePlaybookInDir(playbookName, dirName, baseName)
 	}
 	return "", fmt.Errorf("invalid playbook name '%s'", playbookName)
