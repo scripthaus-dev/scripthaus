@@ -27,6 +27,16 @@ func TestSplitScriptName(t *testing.T) {
 	trySplit(t, "@sawka::foo", "@sawka", "foo")
 	trySplit(t, ".hello.md::test", ".hello.md", "test")
 	trySplit(t, "./foo.md::bar", "./foo.md", "bar")
+	trySplit(t, ".", ".", "")
+	trySplit(t, "..", "..", "")
+	trySplit(t, "^", "^", "")
+	trySplit(t, "^foo.md", "^foo.md", "")
+	trySplit(t, "^sub/test.md", "^sub/test.md", "")
+	trySplit(t, ".foo.md", ".foo.md", "")
+	trySplit(t, "test.md", "test.md", "")
+	trySplit(t, "./test.md", "./test.md", "")
+	trySplit(t, "../test.md", "../test.md", "")
+	trySplit(t, "/home/test.md", "/home/test.md", "")
 }
 
 func tryResolve(t *testing.T, resolver Resolver, input string, goodResolve string, shouldError bool) {

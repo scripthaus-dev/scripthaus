@@ -126,12 +126,18 @@ func SplitScriptName(scriptName string) (string, string, error) {
 		fields := strings.SplitN(scriptName, "::", 2)
 		return fields[0], fields[1], nil
 	}
+	if strings.HasSuffix(scriptName, ".md") {
+		return scriptName, "", nil
+	}
 	if strings.HasPrefix(scriptName, "^") {
 		return "^", scriptName[1:], nil
 	}
 	m := dotPrefixRe.FindStringSubmatch(scriptName)
 	if m != nil {
 		return m[1], scriptName[len(m[1]):], nil
+	}
+	if strings.HasPrefix(scriptName, ".") {
+		return scriptName, "", nil
 	}
 	return "", scriptName, nil
 }

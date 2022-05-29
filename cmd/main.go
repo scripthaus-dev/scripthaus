@@ -213,10 +213,10 @@ func resolveScript(cmdName string, scriptName string, curPlaybookFile string, al
 	if playFile == "" {
 		playFile = "."
 	}
-	if playScript == "" {
+	if !allowBarePlaybook && playScript == "" {
 		return emptyRtn, fmt.Errorf("playbook script name cannot be empty")
 	}
-	if !mdparser.IsValidScriptName(playScript) {
+	if playScript != "" && !mdparser.IsValidScriptName(playScript) {
 		return emptyRtn, fmt.Errorf("invalid characters in playbook script name '%s'", playScript)
 	}
 	return commanddef.ScriptDef{PlaybookFile: playFile, PlaybookScript: playScript}, nil
