@@ -91,4 +91,7 @@ func TestResolvePlaybook(t *testing.T) {
 	tryResolve(t, resolver, "/*test/home/project/p1.md", "/*test/home/project/p1.md", false)
 	tryResolve(t, resolver, "/*test/home/project", "/*test/home/project/scripthaus.md", false)
 	tryResolve(t, resolver, "/*test/home/project/", "/*test/home/project/scripthaus.md", false)
+
+	tryResolve(t, resolver, "*foo.md", "", true)
+	tryResolve(t, resolver, "foo.py", "", true)
 }

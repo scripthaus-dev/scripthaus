@@ -37,10 +37,6 @@ To make typing ScriptHaus commands easier, I recommend adding `alias s="scriptha
 ScriptHaus allows you to organize your bash one-liners and small Python and JavaScript scripts into Markdown "playbooks"
 (playbooks must have the extension ".md").
 
-For safety, ScriptHaus uses a path ($SCRIPTHAUS\_PATH) to find playbooks.  The
-current directory "." is not in the default path, so either add "." to your SCRIPTHAUS_PATH or explicitly reference playbooks
-in the current directory with "./playbook.md".
-
 Scripts are contained within playbooks.  A script begins with a level 4 header with the name of the command in backticks.
 Then add a code fence with the text of your script.  The code fence should have its language set to an allowed scripthaus type
 (sh, bash, python, python2, python3, js, or node) with the **extra tag** "scripthaus" after the language.  Any additional markdown between the
@@ -56,24 +52,56 @@ echo hi
 ```
 ````
 
+## Project and Home Directories
+
+Playbooks can *always* be referenced by a relative or absolute path to their markdown files.
+But, ScriptHaus also supports special special files that let access *global*
+or *project* commands easily.
+
+**Global** commands are placed in $HOME/scripthaus/scripthaus.md (the directory can be overriden
+by settng the environment variable $SCRIPTHAUS_HOME).  You can access any command in this
+scripthaus.md file as `^[script]`.  Other md files in the ScriptHaus home directory can
+be easily accessed as `^[file.md]::[script]`.
+
+**Project** commands are placed in a "scripthaus.md" file at the root of your project directory
+(normally a sibling of your .git directory).  When you are in the project directory, or a sub-directory
+you can access any command in this scripthaus.md file as `.[script]`.  Other md files in the project
+root can be accessed as `.[file.md]::[script]` (note that scripthaus.md *must* also exist).
+
+Note: you can easily replace the "scripts" section of your package.json using a scripthaus.md.
+
 ## Running a Script
 
-To run a script from a playbook use `scripthaus run [playbook]/[script]`.
+To run a script from a playbook use `scripthaus run [playbook]::[script]`.
+
+You can also reference scripts from your *global* or *project* roots.  Here are some examples:
+
+```
+scripthaus run ./test.md::hello # runs the 'hello' command from ./test.md
+scripthaus run ^grep-files      # runs the 'grep-files' command from your global scripthaus.md
+scripthaus run .run-webserver   # runs the 'run-webserver command from your project's scripthaus.md file
+scripthaus run .build.md::test  # runs the 'test' command from the build.md file in your project root
+
+# runs the 'test' command from ./build.md if it exists, otherwise trys to find build.md in your project root
+scripthaus run build.md::test
+```
 
 ## Adding a Script to Playbook
 
 You can always edit the markdown files by hand.  That's the recommended way of converting your old text notes with commands
 into a runnable ScriptHaus playbook.
 
-But, ScriptHaus also allows you to add a command directly from the command-line, which is useful when you want to capture a
+ScriptHaus also allows you to add a command directly from the command-line, which is useful when you want to capture a
 command line from your bash history.
 
 Here's the simplest add command to add your last bash command from history ("!!" refers to the last typed command).
-Note that for safety, "./test.md" must already exist (scripthaus add will not create a new file).  If you need to
-create a new file, just `touch ./test.md` before running "scripthaus add".
+Note that for safety, "test.md" must already exist (scripthaus add will not create a new file).  If you need to
+create a new file, just `touch ./test.md` before running "scripthaus add".  You can also use "^" and "." to add
+to your global or project md files.
 
 ```bash
-scripthaus add -t bash ./test.md/useful-command -m "optional command description" -c "!!"
+scripthaus add -t bash ./test.md::useful-command -m "optional command description" -c "!!"
+scripthaus add -t bash ^s3-upload -m "upload files to my s3 bucket" -c "!!"
 ```
 
 ## Showing Scripts and Playbooks
@@ -87,7 +115,7 @@ scripthaus show [playbook]
 To show the raw markdown for any script in a playbook (including the command text) just run:
 
 ```
-scripthaus show [playbook]/[script]
+scripthaus show [playbook]::[script]
 ```
 
 ## More Resources

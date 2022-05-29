@@ -28,23 +28,29 @@ Resources:
 `)
 
 var RunText = strings.TrimSpace(`
-Usage: scripthaus run [run-opts] [script] [script-arguments]
-       scripthaus run [run-opts] [playbook]/[script] [script-arguments]
+Usage: scripthaus run [run-opts] [script-name] [script-arguments]
 
-The 'run' command will run a standalone or playbook script.  If [script] is an
+The 'run' command will run a standalone or playbook script.  If [script-name] is an
 executable file it will be executed directly.  If it has a known extension
 .py, .sh, or .js it will be executed using python, bash, or node respectively.
 
-It can also execute a playbook command by combining the playbook name
-(which must use a .md extension) '/' command name, e.g. 'playbook.md/test1' will
-execute the 'test1' script inside of the playbook 'playbook.md'.  If the global
-'--playbook' option is given, then 'script' will always be interpreted as
-a script inside of the given playbook.
+Otherwise [script-name] will be interpreted as a playbook command.  Playbook
+commands follow the format [playbook]::[command].
 
-If the script name or playbook name contains a slash, it will be looked up
-using the relative or absolute pathname given.  If it does not include a
-slash $SCRIPTHAUS_PATH will be used to resolve the file (Note: by default
-"." is not in the path, so to run a local script use ./[scriptname]).
+The playbook can always be specified as a relative or absolute path.
+
+The playbook can also be a reference to your global ScriptHaus directory
+by using "^" or your project ScriptHaus directory by using ".".  When
+using the default "scripthaus.md" file you can omit the "::".
+
+Examples:
+  scripthaus run ./test.md::hello # runs the 'hello' command from ./test.md
+  scripthaus run ^grep-files      # runs the 'grep-files' command from your global scripthaus.md
+  scripthaus run .run-webserver   # runs the 'run-webserver command from your project's scripthaus.md file
+  scripthaus run .build.md::test  # runs the 'test' command from the build.md file in your project root
+
+If the global '--playbook' option is given, then 'script' will always be 
+interpreted as a script inside of the given playbook.
 
 Any arguments after 'script' will be passed verbatim as options to the script.
 
@@ -64,14 +70,16 @@ The 'list' command will list the scripts available to run in the given
 playbook.  The playbook can optionally be passed via the -p option.
 
 If no playbook is passed list will find all playbooks in the SCRIPTHAUS_PATH
-and list all of their commands.
+and list all of their commands.  Playbook can be a relative or absolute path,
+or a reference to the global ScriptHaus directory "^" or the project
+ScriptHaus directory ".".
 
 List Options:
     none
 `)
 
 var ShowText = strings.TrimSpace(`
-Usage: scripthaus show [show-opts] [playbook]/[script]
+Usage: scripthaus show [show-opts] [playbook]::[script]
        scripthaus show [show-opts] [playbook]
 
 The 'show' command will show the help for a particular script in a playbook.
@@ -117,9 +125,9 @@ Resources:
 `)
 
 var AddText = replaceBacktick(strings.TrimSpace(`
-Usage: scripthaus add [add-opts] [playbook]/[script] -c "[command]"
-       scripthaus add [add-opts] [playbook]/[script] -- [command]...
-       scripthaus add [add-opts] [playbook]/[script] - < [command-file]
+Usage: scripthaus add [add-opts] [playbook]::[script] -c "[command]"
+       scripthaus add [add-opts] [playbook]::[script] -- [command]...
+       scripthaus add [add-opts] [playbook]::[script] - < [command-file]
 
 The 'add' command will add a command to the playbook specified, and give it
 the name [scriptname].  There are three ways to specify a command:
