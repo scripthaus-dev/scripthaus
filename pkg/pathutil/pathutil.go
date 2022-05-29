@@ -23,6 +23,21 @@ import (
 var DefaultScFile = "scripthaus.md"
 var dotPrefixRe = regexp.MustCompile("^([.]+)[a-zA-Z_]")
 
+type ResolvedPlaybook struct {
+	OrigName      string // the name passed by the user
+	CanonicalName string // canonicalized name (for history)
+	ResolvedFile  string // the absolute resolved file name of playbook
+	ProjectDir    string // if this is a project playbook, this is the project directory
+	ProjectName   string // if this is a project playbook, this is the project name (unused right now)
+}
+
+func (pb *ResolvedPlaybook) OrigShowStr() string {
+	if pb.OrigName == pb.ResolvedFile {
+		return pb.OrigName
+	}
+	return fmt.Sprintf("'%s' (%s)", pb.OrigName, pb.ResolvedFile)
+}
+
 // sets overrides for testing
 type Resolver struct {
 	TestMode        bool
@@ -151,7 +166,7 @@ func (r Resolver) findScRootDir(curDir string, allowCurrent bool) (string, error
 	return "", fs.ErrNotExist
 }
 
-func (r Resolver) resolvePlaybookInDir(rawName string, curDir string, playbookName string) (string, error) {
+func (r Resolver) resolvePlaybookInDir(origName string, curDir string, playbookName string) (string, error) {
 	if playbookName == "" {
 		playbookName = DefaultScFile
 	} else if strings.HasSuffix(playbookName, "/") {
@@ -163,26 +178,27 @@ func (r Resolver) resolvePlaybookInDir(rawName string, curDir string, playbookNa
 		fullPath = path.Join(fullPath, DefaultScFile)
 		finfo, err = r.statInfo(fullPath)
 	}
-	if rawName == "" {
-		rawName = "<default>"
+	displayName := origName
+	if displayName == "" {
+		displayName = "<default>"
 	}
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("playbook not found '%s' (resolved to '%s')", rawName, fullPath)
+			return "", fmt.Errorf("playbook not found '%s' (resolved to '%s')", displayName, fullPath)
 		}
 		if errors.Is(err, fs.ErrPermission) {
-			return "", fmt.Errorf("playbook '%s' (resolved to '%s'), permission error: %w", rawName, fullPath, err)
+			return "", fmt.Errorf("playbook '%s' (resolved to '%s'), permission error: %w", displayName, fullPath, err)
 		}
-		return "", fmt.Errorf("playbook '%s' (resolved to '%s'), stat error: %w", rawName, fullPath, err)
+		return "", fmt.Errorf("playbook '%s' (resolved to '%s'), stat error: %w", displayName, fullPath, err)
 	}
 	if finfo.IsDir {
-		return "", fmt.Errorf("playbook '%s' (resolved to '%s'), is a directory not a file", rawName, fullPath)
+		return "", fmt.Errorf("playbook '%s' (resolved to '%s'), is a directory not a file", displayName, fullPath)
 	}
 	return fullPath, nil
 }
 
 // prefix is either "^", "[.]*" (can be empty).  empty prefix is the same as "."
-func (r Resolver) findPrefixDir(prefix string) (string, error) {
+func (r Resolver) FindPrefixDir(prefix string) (string, error) {
 	if prefix == "^" {
 		return r.GetScHomeDir()
 	}
@@ -212,10 +228,14 @@ func (r Resolver) findPrefixDir(prefix string) (string, error) {
 	return curDir, nil
 }
 
-func (r Resolver) ResolvePlaybook(playbookName string) (string, error) {
+func (r Resolver) ResolvePlaybook(playbookName string) (*ResolvedPlaybook, error) {
 	if playbookName == "-" {
 		// <stdin>
-		return "-", nil
+		return &ResolvedPlaybook{
+			OrigName:      "-",
+			CanonicalName: "-",
+			ResolvedFile:  "-",
+		}, nil
 	}
 	prefixMatch := base.PlaybookPrefixRe.FindStringSubmatch(playbookName)
 	if prefixMatch != nil {
@@ -224,26 +244,48 @@ func (r Resolver) ResolvePlaybook(playbookName string) (string, error) {
 		if prefix == "" {
 			curDir, err := r.Getwd()
 			if err != nil {
-				return "", fmt.Errorf("cannot get current working directory: %w", err)
+				return nil, fmt.Errorf("cannot get current working directory: %w", err)
 			}
 			fullPath := path.Join(curDir, playbookName)
 			found, err := r.tryFindFile(fullPath, "playbook", false)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			if found {
-				return fullPath, nil
+				return &ResolvedPlaybook{
+					OrigName:      playbookName,
+					CanonicalName: fullPath,
+					ResolvedFile:  fullPath,
+				}, nil
 			}
 		}
-		dirName, err := r.findPrefixDir(prefix)
+		dirName, err := r.FindPrefixDir(prefix)
 		if err != nil {
-			return "", fmt.Errorf("cannot resolve directory for playbook '%s': %w", playbookName, err)
+			return nil, fmt.Errorf("cannot resolve directory for playbook '%s': %w", playbookName, err)
 		}
-		return r.resolvePlaybookInDir(playbookName, dirName, playbookName[len(prefix):])
+		noPrefixName := playbookName[len(prefix):]
+		resolvedFile, err := r.resolvePlaybookInDir(playbookName, dirName, noPrefixName)
+		if err != nil {
+			return nil, err
+		}
+		if prefix == "^" {
+			return &ResolvedPlaybook{
+				OrigName:      playbookName,
+				CanonicalName: playbookName,
+				ResolvedFile:  resolvedFile,
+			}, nil
+		} else {
+			return &ResolvedPlaybook{
+				OrigName:      playbookName,
+				CanonicalName: "." + noPrefixName,
+				ResolvedFile:  resolvedFile,
+				ProjectDir:    dirName,
+			}, nil
+		}
 	}
 	if strings.HasPrefix(playbookName, "@") {
 		// future namespaces
-		return "", fmt.Errorf("cannot resolve playbook '%s', @-prefix not supported", playbookName)
+		return nil, fmt.Errorf("cannot resolve playbook '%s', @-prefix not supported", playbookName)
 	}
 	if strings.HasPrefix(playbookName, "./") || strings.HasPrefix(playbookName, "/") || strings.HasPrefix(playbookName, "../") {
 		// absolute/relative path
@@ -253,18 +295,29 @@ func (r Resolver) ResolvePlaybook(playbookName string) (string, error) {
 		} else {
 			curDir, err := r.Getwd()
 			if err != nil {
-				return "", fmt.Errorf("cannot get current working directory: %w", err)
+				return nil, fmt.Errorf("cannot get current working directory: %w", err)
 			}
 			fullPath = path.Clean(path.Join(curDir, playbookName))
 		}
+		var resolvedFile string
+		var err error
 		if strings.HasSuffix(fullPath, "/") {
-			return r.resolvePlaybookInDir(playbookName, fullPath, "")
+			resolvedFile, err = r.resolvePlaybookInDir(playbookName, fullPath, "")
+		} else {
+			dirName := path.Dir(fullPath)
+			baseName := path.Base(fullPath)
+			resolvedFile, err = r.resolvePlaybookInDir(playbookName, dirName, baseName)
 		}
-		dirName := path.Dir(fullPath)
-		baseName := path.Base(fullPath)
-		return r.resolvePlaybookInDir(playbookName, dirName, baseName)
+		if err != nil {
+			return nil, err
+		}
+		return &ResolvedPlaybook{
+			OrigName:      playbookName,
+			CanonicalName: resolvedFile,
+			ResolvedFile:  resolvedFile,
+		}, nil
 	}
-	return "", fmt.Errorf("invalid playbook name '%s'", playbookName)
+	return nil, fmt.Errorf("invalid playbook name '%s'", playbookName)
 }
 
 func GetScHomeDir() (string, error) {

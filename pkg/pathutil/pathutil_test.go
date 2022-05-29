@@ -30,7 +30,7 @@ func TestSplitScriptName(t *testing.T) {
 }
 
 func tryResolve(t *testing.T, resolver Resolver, input string, goodResolve string, shouldError bool) {
-	rfn, err := resolver.ResolvePlaybook(input)
+	rpb, err := resolver.ResolvePlaybook(input)
 	if shouldError {
 		if err == nil {
 			t.Errorf("Invalid resolve %s -- should have error, but did not", input)
@@ -38,8 +38,8 @@ func tryResolve(t *testing.T, resolver Resolver, input string, goodResolve strin
 	} else {
 		if err != nil {
 			t.Errorf("Error resolving %s: %v", input, err)
-		} else if goodResolve != rfn {
-			t.Errorf("Error resolving %s, got [%s], expected [%s]", input, rfn, goodResolve)
+		} else if goodResolve != rpb.ResolvedFile {
+			t.Errorf("Error resolving %s, got [%s], expected [%s]", input, rpb.ResolvedFile, goodResolve)
 		}
 	}
 }

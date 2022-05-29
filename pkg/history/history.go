@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alessio/shellescape"
@@ -35,8 +36,12 @@ CREATE TABLE history (
     scversion text,
     runtype text,
     scriptpath text,
-    scriptfile text,
     scriptname text,
+    scriptfile text,
+    projectdir text,
+    projectname text,
+    playbookfile text,
+    playbookscript text,
     scripttype text,
     metadata text,
     cwd text,
@@ -57,22 +62,25 @@ type HistoryQuery struct {
 }
 
 type HistoryItem struct {
-	HistoryId  int64
-	Ts         int64
-	ScVersion  string
-	RunType    string
-	ScriptPath string
-	ScriptFile string
-	ScriptName string
-	ScriptType string
-	Metadata   string
-	Cwd        string
-	HostName   string
-	IpAddr     string
-	SysUser    string
-	CmdLine    string
-	DurationMs sql.NullInt64 // update
-	ExitCode   sql.NullInt64 // update
+	HistoryId      int64
+	Ts             int64
+	ScVersion      string
+	RunType        string
+	ScriptPath     string // for runtype=script
+	ScriptFile     string // for runtype=script
+	ProjectDir     string // for runtype=playbook, set if playbook file is relative to project root
+	ProjectName    string // for runtype=playbook, set if playbook file is relative to project root
+	PlaybookFile   string // for runtype=playbook, can have prefix "^" or "." (".." will be resolved away)
+	PlaybookScript string // for runtype=playbook
+	ScriptType     string // language
+	Metadata       string
+	Cwd            string
+	HostName       string
+	IpAddr         string
+	SysUser        string
+	CmdLine        string
+	DurationMs     sql.NullInt64 // update
+	ExitCode       sql.NullInt64 // update
 }
 
 func (item *HistoryItem) MarshalJSON() ([]byte, error) {
@@ -82,9 +90,24 @@ func (item *HistoryItem) MarshalJSON() ([]byte, error) {
 	jm["date"] = time.UnixMilli(item.Ts).Format("2006-01-02T15:04:05")
 	jm["version"] = item.ScVersion
 	jm["runtype"] = item.RunType
-	jm["scriptpath"] = item.ScriptPath
-	jm["scriptfile"] = item.ScriptFile
-	jm["scriptname"] = item.ScriptName
+	if item.ScriptPath != "" {
+		jm["scriptpath"] = item.ScriptPath
+	}
+	if item.ScriptFile != "" {
+		jm["scriptfile"] = item.ScriptFile
+	}
+	if item.ProjectDir != "" {
+		jm["projectdir"] = item.ProjectDir
+	}
+	if item.ProjectName != "" {
+		jm["projectname"] = item.ProjectName
+	}
+	if item.PlaybookFile != "" {
+		jm["playbookfile"] = item.PlaybookFile
+	}
+	if item.PlaybookScript != "" {
+		jm["playbookscript"] = item.PlaybookScript
+	}
 	jm["scripttype"] = item.ScriptType
 	jm["cwd"] = item.Cwd
 	jm["hostname"] = item.HostName
@@ -112,21 +135,27 @@ func (item *HistoryItem) DecodeCmdLine() []string {
 	return rtn
 }
 
-func (item *HistoryItem) CompactString() string {
-	return fmt.Sprintf("%5d  %s %s\n", item.HistoryId, item.ScriptString(), shellescape.QuoteCommand(item.DecodeCmdLine()))
+func (item *HistoryItem) CompactString(curProjectDir string) string {
+	return fmt.Sprintf("%5d  %s %s\n", item.HistoryId, item.ScriptString(curProjectDir), shellescape.QuoteCommand(item.DecodeCmdLine()))
 }
 
-func (item *HistoryItem) ScriptString() string {
+func (item *HistoryItem) ScriptString(curProjectDir string) string {
 	if item.RunType == base.RunTypePlaybook {
-		return fmt.Sprintf("%s/%s", item.ScriptFile, item.ScriptName)
+		if item.PlaybookFile == "^" {
+			return fmt.Sprintf("%s%s", item.PlaybookFile, item.PlaybookScript)
+		}
+		if strings.HasPrefix(item.PlaybookFile, ".") && curProjectDir != item.ProjectDir {
+			return fmt.Sprintf("[%s]%s::%s", item.ProjectDir, item.PlaybookFile[1:], item.PlaybookScript)
+		}
+		return fmt.Sprintf("%s::%s", item.PlaybookFile, item.PlaybookScript)
 	} else {
-		return item.ScriptFile
+		return item.ScriptPath
 	}
 }
 
-func (item *HistoryItem) FullString() string {
+func (item *HistoryItem) FullString(curProjectDir string) string {
 	tsStr := time.UnixMilli(item.Ts).Format("[2006-01-02 15:04:05]")
-	line1 := fmt.Sprintf("%5d  %s %s %s\n", item.HistoryId, tsStr, item.ScriptString(), shellescape.QuoteCommand(item.DecodeCmdLine()))
+	line1 := fmt.Sprintf("%5d  %s %s %s\n", item.HistoryId, tsStr, item.ScriptString(curProjectDir), shellescape.QuoteCommand(item.DecodeCmdLine()))
 	line2 := fmt.Sprintf("       cwd: %s", item.Cwd)
 	if item.DurationMs.Valid {
 		line2 += fmt.Sprintf(" | duration: %0.3fms", float64(item.DurationMs.Int64)/1000)

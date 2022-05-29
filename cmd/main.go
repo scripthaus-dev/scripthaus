@@ -112,22 +112,22 @@ func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalO
 	return exitCode, nil
 }
 
-// returns (resolvedFileName, foundCommand, err)
-func resolvePlaybookCommand(playbookFile string, playbookScriptName string, gopts globalOptsType) (string, *commanddef.CommandDef, error) {
-	resolvedFileName, err := pathutil.DefaultResolver().ResolvePlaybook(playbookFile)
+// returns (foundCommand, err)
+func resolvePlaybookCommand(playbookFile string, playbookScriptName string, gopts globalOptsType) (*commanddef.CommandDef, error) {
+	resolvedPlaybook, err := pathutil.DefaultResolver().ResolvePlaybook(playbookFile)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	found, mdSource, err := pathutil.TryReadFile(resolvedFileName, "playbook", false)
+	found, mdSource, err := pathutil.TryReadFile(resolvedPlaybook.ResolvedFile, "playbook", false)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	if !found {
-		return "", nil, fmt.Errorf("cannot find playbook '%s' (resolved to '%s')", playbookFile, resolvedFileName)
+		return nil, fmt.Errorf("cannot find playbook '%s' (resolved to '%s')", playbookFile, resolvedPlaybook.ResolvedFile)
 	}
-	cmdDefs, warnings, err := mdparser.ParseCommands(resolvedFileName, mdSource)
+	cmdDefs, warnings, err := mdparser.ParseCommands(resolvedPlaybook, mdSource)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	var foundCommand *commanddef.CommandDef
 	for _, cmdDef := range cmdDefs {
@@ -137,12 +137,12 @@ func resolvePlaybookCommand(playbookFile string, playbookScriptName string, gopt
 		}
 	}
 	if foundCommand == nil {
-		fmt.Printf("[^scripthaus] ERROR could not find script '%s' inside of playbook '%s'\n", playbookScriptName, resolvedFileName)
+		fmt.Printf("[^scripthaus] ERROR could not find script '%s' inside of playbook '%s'\n", playbookScriptName, resolvedPlaybook.ResolvedFile)
 		fmt.Printf("\n")
 		printWarnings(gopts, warnings, true)
-		return "", nil, nil
+		return nil, nil
 	}
-	return resolvedFileName, foundCommand, nil
+	return foundCommand, nil
 }
 
 func runRunCommand(gopts globalOptsType) (int, error) {
@@ -163,16 +163,15 @@ func runRunCommand(gopts globalOptsType) (int, error) {
 		}
 		return runExecItem(execCmd, nil, gopts)
 	} else {
-		resolvedFileName, foundCommand, err := resolvePlaybookCommand(script.PlaybookFile, script.PlaybookScript, gopts)
+		foundCommand, err := resolvePlaybookCommand(script.PlaybookFile, script.PlaybookScript, gopts)
 		if foundCommand == nil || err != nil {
 			return 1, err
 		}
-		fullScriptName := fmt.Sprintf("%s/%s", resolvedFileName, script.PlaybookScript)
-		err = foundCommand.CheckCommand(fullScriptName, runOpts.RunSpec)
+		err = foundCommand.CheckCommand(runOpts.RunSpec)
 		if err != nil {
 			return 1, err
 		}
-		execItem, err := foundCommand.BuildExecCommand(ctx, fullScriptName, runOpts.RunSpec)
+		execItem, err := foundCommand.BuildExecCommand(ctx, runOpts.RunSpec)
 		if err != nil {
 			return 1, err
 		}
@@ -333,34 +332,25 @@ func parseListOpts(gopts globalOptsType) (listOptsType, error) {
 }
 
 func runListCommandInternal(gopts globalOptsType, playbookFile string) (int, error) {
-	resolvedFileName, err := pathutil.DefaultResolver().ResolvePlaybook(playbookFile)
+	resolvedPlaybook, err := pathutil.DefaultResolver().ResolvePlaybook(playbookFile)
 	if err != nil {
 		return 1, err
 	}
-	found, mdSource, err := pathutil.TryReadFile(resolvedFileName, "playbook", false)
+	found, mdSource, err := pathutil.TryReadFile(resolvedPlaybook.ResolvedFile, "playbook", false)
 	if err != nil {
 		return 1, err
 	}
 	if !found {
-		return 1, fmt.Errorf("cannot find playbook '%s' (resolved to '%s')", playbookFile, resolvedFileName)
+		return 1, fmt.Errorf("cannot find playbook '%s' (resolved to '%s')", playbookFile, resolvedPlaybook.ResolvedFile)
 	}
-	commands, warnings, err := mdparser.ParseCommands(resolvedFileName, mdSource)
+	commands, warnings, err := mdparser.ParseCommands(resolvedPlaybook, mdSource)
 	if err != nil {
 		return 1, err
 	}
 	printWarnings(gopts, warnings, true)
-	if playbookFile == resolvedFileName {
-		fmt.Printf("%s\n", playbookFile)
-	} else {
-		fmt.Printf("%s (%s)\n", playbookFile, resolvedFileName)
-	}
+	fmt.Printf("%s\n", resolvedPlaybook.OrigShowStr())
 	for _, command := range commands {
-		prefixMatch := base.PlaybookPrefixRe.FindStringSubmatch(playbookFile)
-		if prefixMatch != nil && len(prefixMatch[1]) == len(playbookFile) {
-			fmt.Printf("  %s%s\n", playbookFile, command.Name)
-		} else {
-			fmt.Printf("  %s::%s\n", playbookFile, command.Name)
-		}
+		fmt.Printf("  %s\n", command.OrigScriptName())
 	}
 	return 0, nil
 }
@@ -392,7 +382,7 @@ func parseShowOpts(gopts globalOptsType) (showOptsType, error) {
 			return rtn, err
 		}
 		if iter.HasNext() {
-			return rtn, fmt.Errorf("Usage: scripthaus show [playbook]/[script], too many arguments passed, extras = '%s'", strings.Join(iter.Rest(), " "))
+			return rtn, fmt.Errorf("Usage: scripthaus show [playbook]::[script], too many arguments passed, extras = '%s'", strings.Join(iter.Rest(), " "))
 		}
 		break
 	}
@@ -458,6 +448,8 @@ func runHistoryCommand(opts globalOptsType) (int, error) {
 	if err != nil {
 		return 1, err
 	}
+	// ignore error (just use "")
+	curProjectDir, _ := pathutil.DefaultResolver().FindPrefixDir(".")
 	for idx, item := range items {
 		if historyOpts.FormatJson {
 			barr, err := item.MarshalJSON()
@@ -475,11 +467,11 @@ func runHistoryCommand(opts globalOptsType) (int, error) {
 			}
 			continue
 		} else if historyOpts.FormatFull {
-			str := item.FullString()
+			str := item.FullString(curProjectDir)
 			fmt.Printf("%s", str)
 			continue
 		} else {
-			str := item.CompactString()
+			str := item.CompactString(curProjectDir)
 			fmt.Printf("%s", str)
 			continue
 		}
@@ -570,17 +562,16 @@ func runShowCommand(gopts globalOptsType) (int, error) {
 		return 1, err
 	}
 	if showOpts.Script.PlaybookFile == "" {
-		return 1, fmt.Errorf("Usage: scripthaus show [playbook]/[script], no playbook specified")
+		return 1, fmt.Errorf("Usage: scripthaus show [playbook]::[script], no playbook specified")
 	}
 	if showOpts.Script.PlaybookScript == "" {
 		return runListCommandInternal(gopts, showOpts.Script.PlaybookFile)
 	}
-	resolvedFileName, foundCommand, err := resolvePlaybookCommand(showOpts.Script.PlaybookFile, showOpts.Script.PlaybookScript, gopts)
+	foundCommand, err := resolvePlaybookCommand(showOpts.Script.PlaybookFile, showOpts.Script.PlaybookScript, gopts)
 	if foundCommand == nil || err != nil {
 		return 1, err
 	}
-	fullScriptName := fmt.Sprintf("%s/%s", resolvedFileName, showOpts.Script.PlaybookScript)
-	fmt.Printf("[^scripthaus] show '%s'\n\n", fullScriptName)
+	fmt.Printf("[^scripthaus] show '%s'\n\n", foundCommand.FullScriptName())
 	fmt.Printf("%s\n%s\n\n", foundCommand.HelpText, foundCommand.RawCodeText)
 	return 0, nil
 }
@@ -645,7 +636,7 @@ func parseAddOpts(opts globalOptsType) (addOptsType, error) {
 		}
 	}
 	if rtn.Script.PlaybookFile == "" {
-		return rtn, fmt.Errorf("No playbook/script passed to 'add' command.  Usage: scripthaus add [opts] [playbook]/[script]")
+		return rtn, fmt.Errorf("No playbook/script passed to 'add' command.  Usage: scripthaus add [opts] [playbook]::[script]")
 	}
 	if rtn.ScriptText == "" {
 		return rtn, fmt.Errorf("No script text passed to 'add' command.  Use '-c [script-text]', '--' for rest of arguments, or '-' for stdin")
@@ -686,21 +677,21 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 	if !commanddef.IsValidScriptType(addOpts.ScriptType) {
 		return 1, fmt.Errorf("must specify a valid script type ('%s' is not valid), must be one of: %s", addOpts.ScriptType, strings.Join(commanddef.ValidScriptTypes(), ", "))
 	}
-	resolvedFileName, err := pathutil.DefaultResolver().ResolvePlaybook(addOpts.Script.PlaybookFile)
+	resolvedPlaybook, err := pathutil.DefaultResolver().ResolvePlaybook(addOpts.Script.PlaybookFile)
 	if err != nil {
 		return 1, err
 	}
-	cmdDefs, err := readCommandsFromFile(resolvedFileName)
+	cmdDefs, err := readCommandsFromFile(resolvedPlaybook)
 	if err != nil {
 		return 1, err
 	}
 	for _, def := range cmdDefs {
 		if def.Name == addOpts.Script.PlaybookScript {
-			return 1, fmt.Errorf("script with name '%s' already exists in playbook file '%s'", addOpts.Script.PlaybookScript, resolvedFileName)
+			return 1, fmt.Errorf("script with name '%s' already exists in playbook file %s", addOpts.Script.PlaybookScript, resolvedPlaybook.OrigShowStr())
 		}
 	}
 	var buf bytes.Buffer
-	fmt.Printf("[^scripthaus] adding command '%s' to %s:\n", addOpts.Script.PlaybookScript, resolvedFileName)
+	fmt.Printf("[^scripthaus] adding command '%s' to %s:\n", addOpts.Script.PlaybookScript, resolvedPlaybook.OrigShowStr())
 	buf.WriteString(fmt.Sprintf("\n#### `%s`\n\n", addOpts.Script.PlaybookScript))
 	if addOpts.Message != "" {
 		buf.WriteString(fmt.Sprintf("%s\n\n", addOpts.Message))
@@ -711,35 +702,35 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 		fmt.Printf("[^scripthaus] Not modifying file, --dry-run specified\n")
 		return 0, nil
 	}
-	fd, err := os.OpenFile(resolvedFileName, os.O_APPEND|os.O_WRONLY, 0644)
+	fd, err := os.OpenFile(resolvedPlaybook.ResolvedFile, os.O_APPEND|os.O_WRONLY, 0644)
 	defer func() {
 		closeErr := fd.Close()
 		if closeErr != nil && errRtn == nil {
 			errCode = 1
-			errRtn = fmt.Errorf("cannot close/write to playbook '%s': %w", resolvedFileName, closeErr)
+			errRtn = fmt.Errorf("cannot close/write to playbook %s: %w", resolvedPlaybook.OrigShowStr(), closeErr)
 		}
 	}()
 	if err != nil {
-		fmt.Printf("cannot open playbook '%s' for append: %v", resolvedFileName, err)
+		fmt.Printf("cannot open playbook %s for append: %v", resolvedPlaybook.OrigShowStr(), err)
 	}
 	_, err = fd.WriteString(buf.String())
 	if err != nil {
-		fmt.Printf("cannot write to playbook '%s': %v", resolvedFileName, err)
+		fmt.Printf("cannot write to playbook %s: %v", resolvedPlaybook.OrigShowStr(), err)
 	}
 	return 0, nil
 }
 
-func readCommandsFromFile(fileName string) ([]commanddef.CommandDef, error) {
-	fd, err := os.Open(fileName)
+func readCommandsFromFile(playbook *pathutil.ResolvedPlaybook) ([]commanddef.CommandDef, error) {
+	fd, err := os.Open(playbook.ResolvedFile)
 	if err != nil {
-		return nil, fmt.Errorf("cannot open playbook file '%s': %w", fileName, err)
+		return nil, fmt.Errorf("cannot open playbook file %s: %w", playbook.OrigShowStr(), err)
 	}
 	defer fd.Close()
 	fileBytes, err := io.ReadAll(fd)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read playbook file '%s': %w", fileName, err)
+		return nil, fmt.Errorf("cannot read playbook file %s: %w", playbook.OrigShowStr(), err)
 	}
-	defs, _, err := mdparser.ParseCommands(fileName, fileBytes)
+	defs, _, err := mdparser.ParseCommands(playbook, fileBytes)
 	if err != nil {
 		return nil, err
 	}
