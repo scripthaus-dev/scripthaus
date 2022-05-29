@@ -449,7 +449,7 @@ func runHistoryCommand(opts globalOptsType) (int, error) {
 		return 1, err
 	}
 	// ignore error (just use "")
-	curProjectDir, _ := pathutil.DefaultResolver().FindPrefixDir(".")
+	henv := history.MakeHistoryEnv()
 	for idx, item := range items {
 		if historyOpts.FormatJson {
 			barr, err := item.MarshalJSON()
@@ -467,11 +467,11 @@ func runHistoryCommand(opts globalOptsType) (int, error) {
 			}
 			continue
 		} else if historyOpts.FormatFull {
-			str := item.FullString(curProjectDir)
+			str := item.FullString(henv)
 			fmt.Printf("%s", str)
 			continue
 		} else {
-			str := item.CompactString(curProjectDir)
+			str := item.CompactString(henv)
 			fmt.Printf("%s", str)
 			continue
 		}
@@ -625,7 +625,7 @@ func parseAddOpts(opts globalOptsType) (addOptsType, error) {
 			break
 		}
 		if isOption(argStr) {
-			return rtn, fmt.Errorf("invalid option '%s' passed to scripthaus show command", argStr)
+			return rtn, fmt.Errorf("invalid option '%s' passed to scripthaus add command", argStr)
 		}
 		rtn.Script, err = resolveScript("add", argStr, rtn.Script.PlaybookFile, false)
 		if err != nil {

@@ -36,7 +36,6 @@ CREATE TABLE history (
     scversion text,
     runtype text,
     scriptpath text,
-    scriptname text,
     scriptfile text,
     projectdir text,
     projectname text,
@@ -83,6 +82,44 @@ type HistoryItem struct {
 	ExitCode       sql.NullInt64 // update
 }
 
+type HistoryEnv struct {
+	Cwd        string
+	ProjectDir string
+}
+
+func (henv HistoryEnv) TruncatePath(fullPath string) string {
+	if henv.Cwd == "/" || henv.Cwd == "" {
+		return fullPath
+	}
+	if strings.HasPrefix(fullPath, henv.Cwd+"/") {
+		return "." + fullPath[len(henv.Cwd):]
+	}
+	parentDir := path.Dir(henv.Cwd)
+	if parentDir != "/" && parentDir != "" {
+		if strings.HasPrefix(fullPath, parentDir+"/") {
+			return ".." + fullPath[len(parentDir):]
+		}
+	}
+	return fullPath
+}
+
+func stripTrailingSlash(s string) string {
+	if len(s) >= 2 && strings.HasSuffix(s, "/") {
+		return s[:len(s)-1]
+	}
+	return s
+}
+
+// does not return errors
+func MakeHistoryEnv() HistoryEnv {
+	var rtn HistoryEnv
+	rtn.Cwd, _ = os.Getwd()
+	rtn.Cwd = stripTrailingSlash(rtn.Cwd)
+	rtn.ProjectDir, _ = pathutil.DefaultResolver().FindPrefixDir(".")
+	rtn.ProjectDir = stripTrailingSlash(rtn.ProjectDir)
+	return rtn
+}
+
 func (item *HistoryItem) MarshalJSON() ([]byte, error) {
 	jm := make(map[string]interface{})
 	jm["historyid"] = item.HistoryId
@@ -115,10 +152,10 @@ func (item *HistoryItem) MarshalJSON() ([]byte, error) {
 	jm["sysuser"] = item.SysUser
 	jm["cmdline"] = item.CmdLine
 	if item.DurationMs.Valid {
-		jm["durationms"] = item.DurationMs
+		jm["durationms"] = item.DurationMs.Int64
 	}
 	if item.ExitCode.Valid {
-		jm["exitcode"] = item.ExitCode
+		jm["exitcode"] = item.ExitCode.Int64
 	}
 	return json.Marshal(jm)
 }
@@ -135,27 +172,32 @@ func (item *HistoryItem) DecodeCmdLine() []string {
 	return rtn
 }
 
-func (item *HistoryItem) CompactString(curProjectDir string) string {
-	return fmt.Sprintf("%5d  %s %s\n", item.HistoryId, item.ScriptString(curProjectDir), shellescape.QuoteCommand(item.DecodeCmdLine()))
+func (item *HistoryItem) CompactString(henv HistoryEnv) string {
+	return fmt.Sprintf("%5d  %s %s\n", item.HistoryId, item.ScriptString(henv), shellescape.QuoteCommand(item.DecodeCmdLine()))
 }
 
-func (item *HistoryItem) ScriptString(curProjectDir string) string {
+func (item *HistoryItem) ScriptString(henv HistoryEnv) string {
 	if item.RunType == base.RunTypePlaybook {
 		if item.PlaybookFile == "^" {
 			return fmt.Sprintf("%s%s", item.PlaybookFile, item.PlaybookScript)
 		}
-		if strings.HasPrefix(item.PlaybookFile, ".") && curProjectDir != item.ProjectDir {
-			return fmt.Sprintf("[%s]%s::%s", item.ProjectDir, item.PlaybookFile[1:], item.PlaybookScript)
+		if strings.HasPrefix(item.PlaybookFile, ".") {
+			if henv.ProjectDir != item.ProjectDir {
+				projectDirStr := path.Base(item.ProjectDir)
+				return fmt.Sprintf("[%s]%s::%s", projectDirStr, item.PlaybookFile[1:], item.PlaybookScript)
+			} else {
+				return fmt.Sprintf("%s%s", item.PlaybookFile, item.PlaybookScript)
+			}
 		}
-		return fmt.Sprintf("%s::%s", item.PlaybookFile, item.PlaybookScript)
+		return fmt.Sprintf("%s::%s", henv.TruncatePath(item.PlaybookFile), item.PlaybookScript)
 	} else {
-		return item.ScriptPath
+		return henv.TruncatePath(item.ScriptPath)
 	}
 }
 
-func (item *HistoryItem) FullString(curProjectDir string) string {
+func (item *HistoryItem) FullString(henv HistoryEnv) string {
 	tsStr := time.UnixMilli(item.Ts).Format("[2006-01-02 15:04:05]")
-	line1 := fmt.Sprintf("%5d  %s %s %s\n", item.HistoryId, tsStr, item.ScriptString(curProjectDir), shellescape.QuoteCommand(item.DecodeCmdLine()))
+	line1 := fmt.Sprintf("%5d  %s %s %s\n", item.HistoryId, tsStr, item.ScriptString(henv), shellescape.QuoteCommand(item.DecodeCmdLine()))
 	line2 := fmt.Sprintf("       cwd: %s", item.Cwd)
 	if item.DurationMs.Valid {
 		line2 += fmt.Sprintf(" | duration: %0.3fms", float64(item.DurationMs.Int64)/1000)
@@ -238,9 +280,13 @@ func RemoveHistoryItems(removeAll bool, startId int, endId int) (int, error) {
 func InsertHistoryItem(item *HistoryItem) error {
 	sqlStr := `
         INSERT INTO history 
-            (historyid, ts, scversion, runtype, scriptpath, scriptfile, scriptname, scripttype, metadata, cwd, hostname, ipaddr, sysuser, cmdline)
+            (historyid, ts, scversion, runtype, scriptpath, scriptfile,
+             projectdir, projectname, playbookfile, playbookscript, scripttype, 
+             metadata, cwd, hostname, ipaddr, sysuser, cmdline)
         VALUES 
-            (NULL, :ts, :scversion, :runtype, :scriptpath, :scriptfile, :scriptname, :scripttype, :metadata, :cwd, :hostname, :ipaddr, :sysuser, :cmdline)
+            (NULL,     :ts,:scversion,:runtype,:scriptpath,:scriptfile,
+            :projectdir,:projectname,:playbookfile,:playbookscript,:scripttype,
+            :metadata,:cwd,:hostname,:ipaddr,:sysuser,:cmdline)
 `
 	db, err := getDBConn()
 	if err != nil {

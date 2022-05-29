@@ -340,11 +340,8 @@ func (cdef *CommandDef) BuildExecCommand(ctx context.Context, runSpec SpecType) 
 	execItem.FullScriptName = cdef.FullScriptName()
 	execItem.HItem = history.BuildHistoryItem()
 	execItem.HItem.RunType = base.RunTypePlaybook
-	// execItem.HItem.ScriptPath, _ = filepath.Abs(cdef.PlaybookPath)
-	// execItem.HItem.ScriptFile = path.Base(cdef.PlaybookPath)
-	// execItem.HItem.ScriptName = cdef.Name
-	execItem.HItem.ProjectDir = ""
-	execItem.HItem.PlaybookFile = ""
+	execItem.HItem.ProjectDir = cdef.Playbook.ProjectDir
+	execItem.HItem.PlaybookFile = cdef.Playbook.CanonicalName
 	execItem.HItem.PlaybookScript = cdef.Name
 	execItem.HItem.ScriptType = cdef.Lang
 	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
