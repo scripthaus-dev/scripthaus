@@ -118,6 +118,12 @@ To show the raw markdown for any script in a playbook (including the command tex
 scripthaus show [playbook]::[script]
 ```
 
+## Credits
+
+Special thanks to [Adam Bouhenguel @ajbouh](https://github.com/ajbouh) who had the initial idea of 
+using Markdown to write and document scripts that can be executed from the command-line.
+Adam also contributed the initial proof of concept code.
+
 ## More Resources
 
 ScriptHaus is under active development.  Please report and bugs here in the GitHub issues tracker.  If you enjoy using
