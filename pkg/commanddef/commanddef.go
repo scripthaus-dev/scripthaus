@@ -16,18 +16,20 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/scripthaus-dev/scripthaus/pkg/base"
 	"github.com/scripthaus-dev/scripthaus/pkg/history"
+	"github.com/scripthaus-dev/scripthaus/pkg/pathutil"
 )
 
 type CommandDef struct {
-	PlaybookPath string
-	Name         string
-	Lang         string
-	ScriptText   string
-	Info         map[string]string
-	HelpText     string
-	ShortText    string
-	RawCodeText  string
+	Playbook    *pathutil.ResolvedPlaybook
+	Name        string
+	Lang        string
+	ScriptText  string
+	Info        map[string]string
+	HelpText    string
+	ShortText   string
+	RawCodeText string
 
 	StartIndex  int
 	StartLineNo int // 1-indexed
@@ -36,6 +38,20 @@ type CommandDef struct {
 	RequireEnvVars      []string
 	DirectivesProcessed bool
 	Warnings            []string
+}
+
+func (cdef *CommandDef) FullScriptName() string {
+	if cdef.Playbook.CanonicalName == "^" || cdef.Playbook.CanonicalName == "." {
+		fmt.Sprintf("%s%s", cdef.Playbook.CanonicalName, cdef.Name)
+	}
+	return fmt.Sprintf("%s::%s", cdef.Playbook.CanonicalName, cdef.Name)
+}
+
+func (cdef *CommandDef) OrigScriptName() string {
+	if cdef.Playbook.OrigName == "^" || cdef.Playbook.OrigName == "." || cdef.Playbook.OrigName == "" {
+		return fmt.Sprintf("%s%s", cdef.Playbook.OrigName, cdef.Name)
+	}
+	return fmt.Sprintf("%s::%s", cdef.Playbook.OrigName, cdef.Name)
 }
 
 type ExecItem struct {
@@ -48,7 +64,7 @@ type ExecItem struct {
 }
 
 func (item *ExecItem) CmdShortName() string {
-	if item.RunType == history.RunTypeScript {
+	if item.RunType == base.RunTypeScript {
 		return item.FullScriptName
 	} else {
 		return fmt.Sprintf("%s %s", item.CmdName, item.FullScriptName)
@@ -140,9 +156,9 @@ func IsValidScriptType(scriptType string) bool {
 	}
 }
 
-func (cdef *CommandDef) buildNormalCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (*ExecItem, error) {
+func (cdef *CommandDef) buildNormalCommand(ctx context.Context, runSpec SpecType) (*ExecItem, error) {
 	if cdef.Lang == "sh" || cdef.Lang == "bash" {
-		args := append([]string{"-c", cdef.ScriptText, fullScriptName}, runSpec.ScriptArgs...)
+		args := append([]string{"-c", cdef.ScriptText, cdef.FullScriptName()}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, cdef.Lang, args...)
 		setStandardCmdOpts(execCmd, runSpec)
 		return &ExecItem{CmdName: cdef.Lang, Cmd: execCmd}, nil
@@ -176,13 +192,13 @@ func combine(rest ...interface{}) []string {
 	return list
 }
 
-func (cdef *CommandDef) buildDockerCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (*ExecItem, error) {
+func (cdef *CommandDef) buildDockerCommand(ctx context.Context, runSpec SpecType) (*ExecItem, error) {
 	if runSpec.DockerImage == "" {
 		return nil, fmt.Errorf("must supply --docker-image to build docker command")
 	}
 	dockerEnvArgs := getDockerEnvArgs(cdef, runSpec)
 	if cdef.Lang == "sh" || cdef.Lang == "bash" {
-		args := combine("run", runSpec.DockerOpts, dockerEnvArgs, runSpec.DockerImage, cdef.Lang, "-c", cdef.ScriptText, fullScriptName, runSpec.ScriptArgs)
+		args := combine("run", runSpec.DockerOpts, dockerEnvArgs, runSpec.DockerImage, cdef.Lang, "-c", cdef.ScriptText, cdef.FullScriptName(), runSpec.ScriptArgs)
 		execCmd := exec.CommandContext(ctx, "docker", args...)
 		setStandardCmdOpts(execCmd, runSpec)
 		cmdName := fmt.Sprintf("docker run %s %s", runSpec.DockerImage, cdef.Lang)
@@ -292,7 +308,7 @@ func makeFullEnv(runSpec SpecType) []string {
 	return fullEnv
 }
 
-func (cdef *CommandDef) CheckCommand(fullScriptName string, runSpec SpecType) error {
+func (cdef *CommandDef) CheckCommand(runSpec SpecType) error {
 	cdef.processDirectives()
 	fullEnv := makeFullEnv(runSpec)
 	envMap := makeEnvMap(fullEnv)
@@ -306,27 +322,27 @@ func (cdef *CommandDef) CheckCommand(fullScriptName string, runSpec SpecType) er
 	return nil
 }
 
-func (cdef *CommandDef) BuildExecCommand(ctx context.Context, fullScriptName string, runSpec SpecType) (*ExecItem, error) {
+func (cdef *CommandDef) BuildExecCommand(ctx context.Context, runSpec SpecType) (*ExecItem, error) {
 	var err error
 	var execItem *ExecItem
 	if runSpec.SpecialMode == "docker" {
-		execItem, err = cdef.buildDockerCommand(ctx, fullScriptName, runSpec)
+		execItem, err = cdef.buildDockerCommand(ctx, runSpec)
 		if execItem != nil {
 			execItem.SpecialMode = "docker"
 		}
 	} else {
-		execItem, err = cdef.buildNormalCommand(ctx, fullScriptName, runSpec)
+		execItem, err = cdef.buildNormalCommand(ctx, runSpec)
 	}
 	if err != nil {
 		return nil, err
 	}
-	execItem.RunType = history.RunTypePlaybook
-	execItem.FullScriptName = fullScriptName
+	execItem.RunType = base.RunTypePlaybook
+	execItem.FullScriptName = cdef.FullScriptName()
 	execItem.HItem = history.BuildHistoryItem()
-	execItem.HItem.RunType = history.RunTypePlaybook
-	execItem.HItem.ScriptPath, _ = filepath.Abs(cdef.PlaybookPath)
-	execItem.HItem.ScriptFile = path.Base(cdef.PlaybookPath)
-	execItem.HItem.ScriptName = cdef.Name
+	execItem.HItem.RunType = base.RunTypePlaybook
+	execItem.HItem.ProjectDir = cdef.Playbook.ProjectDir
+	execItem.HItem.PlaybookFile = cdef.Playbook.CanonicalName
+	execItem.HItem.PlaybookScript = cdef.Name
 	execItem.HItem.ScriptType = cdef.Lang
 	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
 	return execItem, nil
@@ -338,9 +354,9 @@ func BuildScriptExecCommand(ctx context.Context, scriptPath string, runSpec Spec
 	}
 	execCmd := exec.CommandContext(ctx, scriptPath, runSpec.ScriptArgs...)
 	setStandardCmdOpts(execCmd, runSpec)
-	execItem := &ExecItem{CmdName: scriptPath, Cmd: execCmd, FullScriptName: scriptPath, RunType: history.RunTypeScript}
+	execItem := &ExecItem{CmdName: scriptPath, Cmd: execCmd, FullScriptName: scriptPath, RunType: base.RunTypeScript}
 	execItem.HItem = history.BuildHistoryItem()
-	execItem.HItem.RunType = history.RunTypeScript
+	execItem.HItem.RunType = base.RunTypeScript
 	execItem.HItem.ScriptPath, _ = filepath.Abs(scriptPath)
 	execItem.HItem.ScriptFile = path.Base(scriptPath)
 	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)

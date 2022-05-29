@@ -12,17 +12,17 @@ import (
 	"os/user"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alessio/shellescape"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/scripthaus-dev/scripthaus/pkg/base"
+	"github.com/scripthaus-dev/scripthaus/pkg/pathutil"
 )
 
 const VersionMdKey = "version"
-const RunTypePlaybook = "playbook"
-const RunTypeScript = "script"
 
 var createDBSql string = `
 CREATE TABLE scripthaus_meta (
@@ -37,7 +37,10 @@ CREATE TABLE history (
     runtype text,
     scriptpath text,
     scriptfile text,
-    scriptname text,
+    projectdir text,
+    projectname text,
+    playbookfile text,
+    playbookscript text,
     scripttype text,
     metadata text,
     cwd text,
@@ -58,22 +61,63 @@ type HistoryQuery struct {
 }
 
 type HistoryItem struct {
-	HistoryId  int64
-	Ts         int64
-	ScVersion  string
-	RunType    string
-	ScriptPath string
-	ScriptFile string
-	ScriptName string
-	ScriptType string
-	Metadata   string
+	HistoryId      int64
+	Ts             int64
+	ScVersion      string
+	RunType        string
+	ScriptPath     string // for runtype=script
+	ScriptFile     string // for runtype=script
+	ProjectDir     string // for runtype=playbook, set if playbook file is relative to project root
+	ProjectName    string // for runtype=playbook, set if playbook file is relative to project root
+	PlaybookFile   string // for runtype=playbook, can have prefix "^" or "." (".." will be resolved away)
+	PlaybookScript string // for runtype=playbook
+	ScriptType     string // language
+	Metadata       string
+	Cwd            string
+	HostName       string
+	IpAddr         string
+	SysUser        string
+	CmdLine        string
+	DurationMs     sql.NullInt64 // update
+	ExitCode       sql.NullInt64 // update
+}
+
+type HistoryEnv struct {
 	Cwd        string
-	HostName   string
-	IpAddr     string
-	SysUser    string
-	CmdLine    string
-	DurationMs sql.NullInt64 // update
-	ExitCode   sql.NullInt64 // update
+	ProjectDir string
+}
+
+func (henv HistoryEnv) TruncatePath(fullPath string) string {
+	if henv.Cwd == "/" || henv.Cwd == "" {
+		return fullPath
+	}
+	if strings.HasPrefix(fullPath, henv.Cwd+"/") {
+		return "." + fullPath[len(henv.Cwd):]
+	}
+	parentDir := path.Dir(henv.Cwd)
+	if parentDir != "/" && parentDir != "" {
+		if strings.HasPrefix(fullPath, parentDir+"/") {
+			return ".." + fullPath[len(parentDir):]
+		}
+	}
+	return fullPath
+}
+
+func stripTrailingSlash(s string) string {
+	if len(s) >= 2 && strings.HasSuffix(s, "/") {
+		return s[:len(s)-1]
+	}
+	return s
+}
+
+// does not return errors
+func MakeHistoryEnv() HistoryEnv {
+	var rtn HistoryEnv
+	rtn.Cwd, _ = os.Getwd()
+	rtn.Cwd = stripTrailingSlash(rtn.Cwd)
+	rtn.ProjectDir, _ = pathutil.DefaultResolver().FindPrefixDir(".")
+	rtn.ProjectDir = stripTrailingSlash(rtn.ProjectDir)
+	return rtn
 }
 
 func (item *HistoryItem) MarshalJSON() ([]byte, error) {
@@ -83,9 +127,24 @@ func (item *HistoryItem) MarshalJSON() ([]byte, error) {
 	jm["date"] = time.UnixMilli(item.Ts).Format("2006-01-02T15:04:05")
 	jm["version"] = item.ScVersion
 	jm["runtype"] = item.RunType
-	jm["scriptpath"] = item.ScriptPath
-	jm["scriptfile"] = item.ScriptFile
-	jm["scriptname"] = item.ScriptName
+	if item.ScriptPath != "" {
+		jm["scriptpath"] = item.ScriptPath
+	}
+	if item.ScriptFile != "" {
+		jm["scriptfile"] = item.ScriptFile
+	}
+	if item.ProjectDir != "" {
+		jm["projectdir"] = item.ProjectDir
+	}
+	if item.ProjectName != "" {
+		jm["projectname"] = item.ProjectName
+	}
+	if item.PlaybookFile != "" {
+		jm["playbookfile"] = item.PlaybookFile
+	}
+	if item.PlaybookScript != "" {
+		jm["playbookscript"] = item.PlaybookScript
+	}
 	jm["scripttype"] = item.ScriptType
 	jm["cwd"] = item.Cwd
 	jm["hostname"] = item.HostName
@@ -93,10 +152,10 @@ func (item *HistoryItem) MarshalJSON() ([]byte, error) {
 	jm["sysuser"] = item.SysUser
 	jm["cmdline"] = item.CmdLine
 	if item.DurationMs.Valid {
-		jm["durationms"] = item.DurationMs
+		jm["durationms"] = item.DurationMs.Int64
 	}
 	if item.ExitCode.Valid {
-		jm["exitcode"] = item.ExitCode
+		jm["exitcode"] = item.ExitCode.Int64
 	}
 	return json.Marshal(jm)
 }
@@ -113,21 +172,32 @@ func (item *HistoryItem) DecodeCmdLine() []string {
 	return rtn
 }
 
-func (item *HistoryItem) CompactString() string {
-	return fmt.Sprintf("%5d  %s %s\n", item.HistoryId, item.ScriptString(), shellescape.QuoteCommand(item.DecodeCmdLine()))
+func (item *HistoryItem) CompactString(henv HistoryEnv) string {
+	return fmt.Sprintf("%5d  %s %s\n", item.HistoryId, item.ScriptString(henv), shellescape.QuoteCommand(item.DecodeCmdLine()))
 }
 
-func (item *HistoryItem) ScriptString() string {
-	if item.RunType == RunTypePlaybook {
-		return fmt.Sprintf("%s/%s", item.ScriptFile, item.ScriptName)
+func (item *HistoryItem) ScriptString(henv HistoryEnv) string {
+	if item.RunType == base.RunTypePlaybook {
+		if item.PlaybookFile == "^" {
+			return fmt.Sprintf("%s%s", item.PlaybookFile, item.PlaybookScript)
+		}
+		if strings.HasPrefix(item.PlaybookFile, ".") {
+			if henv.ProjectDir != item.ProjectDir {
+				projectDirStr := path.Base(item.ProjectDir)
+				return fmt.Sprintf("[%s]%s::%s", projectDirStr, item.PlaybookFile[1:], item.PlaybookScript)
+			} else {
+				return fmt.Sprintf("%s%s", item.PlaybookFile, item.PlaybookScript)
+			}
+		}
+		return fmt.Sprintf("%s::%s", henv.TruncatePath(item.PlaybookFile), item.PlaybookScript)
 	} else {
-		return item.ScriptFile
+		return henv.TruncatePath(item.ScriptPath)
 	}
 }
 
-func (item *HistoryItem) FullString() string {
+func (item *HistoryItem) FullString(henv HistoryEnv) string {
 	tsStr := time.UnixMilli(item.Ts).Format("[2006-01-02 15:04:05]")
-	line1 := fmt.Sprintf("%5d  %s %s %s\n", item.HistoryId, tsStr, item.ScriptString(), shellescape.QuoteCommand(item.DecodeCmdLine()))
+	line1 := fmt.Sprintf("%5d  %s %s %s\n", item.HistoryId, tsStr, item.ScriptString(henv), shellescape.QuoteCommand(item.DecodeCmdLine()))
 	line2 := fmt.Sprintf("       cwd: %s", item.Cwd)
 	if item.DurationMs.Valid {
 		line2 += fmt.Sprintf(" | duration: %0.3fms", float64(item.DurationMs.Int64)/1000)
@@ -202,7 +272,7 @@ func RemoveHistoryItems(removeAll bool, startId int, endId int) (int, error) {
 	}
 	numRemoved, err := result.RowsAffected()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: history items removed, but error getting number of rows affected: %w", err)
+		fmt.Fprintf(os.Stderr, "WARNING: history items removed, but error getting number of rows affected: %v", err)
 	}
 	return int(numRemoved), nil
 }
@@ -210,9 +280,13 @@ func RemoveHistoryItems(removeAll bool, startId int, endId int) (int, error) {
 func InsertHistoryItem(item *HistoryItem) error {
 	sqlStr := `
         INSERT INTO history 
-            (historyid, ts, scversion, runtype, scriptpath, scriptfile, scriptname, scripttype, metadata, cwd, hostname, ipaddr, sysuser, cmdline)
+            (historyid, ts, scversion, runtype, scriptpath, scriptfile,
+             projectdir, projectname, playbookfile, playbookscript, scripttype, 
+             metadata, cwd, hostname, ipaddr, sysuser, cmdline)
         VALUES 
-            (NULL, :ts, :scversion, :runtype, :scriptpath, :scriptfile, :scriptname, :scripttype, :metadata, :cwd, :hostname, :ipaddr, :sysuser, :cmdline)
+            (NULL,     :ts,:scversion,:runtype,:scriptpath,:scriptfile,
+            :projectdir,:projectname,:playbookfile,:playbookscript,:scripttype,
+            :metadata,:cwd,:hostname,:ipaddr,:sysuser,:cmdline)
 `
 	db, err := getDBConn()
 	if err != nil {
@@ -330,20 +404,8 @@ func DebugDBFileError() error {
 	return nil
 }
 
-func GetScHomeDir() (string, error) {
-	scHome := os.Getenv(base.ScHomeVarName)
-	if scHome == "" {
-		homeVar := os.Getenv(base.HomeVarName)
-		if homeVar == "" {
-			return "", fmt.Errorf("Cannot resolve scripthaus home directory (SCRIPTHAUS_HOME and HOME not set)")
-		}
-		scHome = path.Join(homeVar, "scripthaus")
-	}
-	return scHome, nil
-}
-
 func GetHistoryDBFileName() (string, error) {
-	scHome, err := GetScHomeDir()
+	scHome, err := pathutil.GetScHomeDir()
 	if err != nil {
 		return "", err
 	}
@@ -357,13 +419,13 @@ func RemoveDB() error {
 	}
 	err = os.Remove(dbFileName)
 	if err != nil {
-		return fmt.Errorf("cannot remove scripthaus db file '%s': %w", err)
+		return fmt.Errorf("cannot remove scripthaus db file '%s': %v", dbFileName, err)
 	}
 	return nil
 }
 
 func createDB() error {
-	scHomeDir, err := GetScHomeDir()
+	scHomeDir, err := pathutil.GetScHomeDir()
 	if err != nil {
 		return fmt.Errorf("cannot create history db: %w", err)
 	}
@@ -377,7 +439,7 @@ func createDB() error {
 	} else if err != nil {
 		return fmt.Errorf("cannot stat scripthaus home directory '%s': %w", scHomeDir, err)
 	} else if !homeDirFinfo.IsDir() {
-		return fmt.Errorf("invalid scripthaus home directory '%s' is a file (not a directory)", scHomeDir, err)
+		return fmt.Errorf("invalid scripthaus home directory '%s' is a file (not a directory)", scHomeDir)
 	}
 	dbFileName, err := GetHistoryDBFileName()
 	if err != nil {

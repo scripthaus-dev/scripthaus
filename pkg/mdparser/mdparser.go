@@ -12,7 +12,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/scripthaus-dev/scripthaus/pkg/base"
 	"github.com/scripthaus-dev/scripthaus/pkg/commanddef"
+	"github.com/scripthaus-dev/scripthaus/pkg/pathutil"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -53,7 +55,7 @@ func mdIndexBackToNewLine(mdIdx int, mdSource []byte) int {
 var validNameRe = regexp.MustCompile("^[a-zA-Z_][a-zA-Z0-9_-]*$")
 
 func IsValidScriptName(name string) bool {
-	return validNameRe.MatchString(name)
+	return base.PlaybookScriptNameRe.MatchString(name)
 }
 
 func parseInfo(info string) (string, map[string]string) {
@@ -126,7 +128,7 @@ func blockStartIndex(block ast.Node, mdSource []byte) (int, int) {
 	return mdIdx, findLineNo(mdIdx, mdSource)
 }
 
-func ParseCommands(playbookPath string, mdSource []byte) ([]commanddef.CommandDef, []string, error) {
+func ParseCommands(playbook *pathutil.ResolvedPlaybook, mdSource []byte) ([]commanddef.CommandDef, []string, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 	)
@@ -172,7 +174,7 @@ func ParseCommands(playbookPath string, mdSource []byte) ([]commanddef.CommandDe
 					warnings = append(warnings, fmt.Sprintf("potential script heading found but bad script name '%s' is invalid (line %d)", defName, startLineNo))
 					continue
 				}
-				curDef = &commanddef.CommandDef{PlaybookPath: playbookPath, Name: defName, StartIndex: startIdx, StartLineNo: startLineNo}
+				curDef = &commanddef.CommandDef{Playbook: playbook, Name: defName, StartIndex: startIdx, StartLineNo: startLineNo}
 			}
 		}
 
