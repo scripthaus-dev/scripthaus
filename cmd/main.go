@@ -24,6 +24,7 @@ import (
 	"github.com/scripthaus-dev/scripthaus/pkg/history"
 	"github.com/scripthaus-dev/scripthaus/pkg/mdparser"
 	"github.com/scripthaus-dev/scripthaus/pkg/pathutil"
+	"github.com/scripthaus-dev/scripthaus/pkg/testpty"
 
 	"github.com/mattn/go-shellwords"
 )
@@ -748,6 +749,7 @@ type globalOptsType struct {
 	SpecName     string
 	CommandName  string
 	CommandArgs  []string
+	TestPty      bool
 }
 
 func parseGlobalOpts(args []string) (globalOptsType, error) {
@@ -769,6 +771,10 @@ func parseGlobalOpts(args []string) (globalOptsType, error) {
 			}
 			opts.PlaybookFile = iter.Next()
 			continue
+		}
+		if argStr == "--test-pty" {
+			opts.TestPty = true
+			break
 		}
 		if isOption(argStr) {
 			return opts, fmt.Errorf("Invalid option '%s'", argStr)
@@ -812,6 +818,14 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[^scripthaus] ERROR %v\n\n", err)
 		os.Exit(1)
+	}
+	if gopts.TestPty {
+		err = testpty.Run()
+		if err != nil {
+			fmt.Printf("[pty] ERROR %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 	exitCode := 0
 	if gopts.CommandName == "" || gopts.CommandName == "help" {
