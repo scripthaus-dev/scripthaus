@@ -260,8 +260,11 @@ func parseRunOpts(gopts globalOptsType) (commanddef.RunOptsType, error) {
 		rtn.RunSpec.ScriptArgs = iter.Rest()
 		break
 	}
-	if rtn.Script.IsEmpty() {
-		return rtn, fmt.Errorf("Usage: scripthaus run [run-opts] [script] [script-opts], no script specified")
+	if rtn.Script.PlaybookFile == "" {
+		return rtn, fmt.Errorf("Usage: scripthaus run [run-opts] [playbook]::[command] [script-opts], no playbook specified")
+	}
+	if rtn.Script.PlaybookCommand == "" {
+		return rtn, fmt.Errorf("Usage: scripthaus run [run-opts] [playbook]::[command] [script-opts], no command specified")
 	}
 	return rtn, nil
 }

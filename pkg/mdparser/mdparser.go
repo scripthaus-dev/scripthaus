@@ -247,6 +247,7 @@ func ParseCommands(playbook *pathutil.ResolvedPlaybook, mdSource []byte) ([]comm
 			newDef.Lang = lang
 			newDef.ScriptText = scriptText
 			newDef.Info = blockInfo
+			newDef.RawDirectives = rawDirs
 			cbStartIdx := mdIndexBackToNewLine(codeNode.Info.Segment.Start, mdSource)
 			if breakIdx == -1 {
 				newDef.StartIndex = cbStartIdx

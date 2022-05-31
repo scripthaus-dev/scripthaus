@@ -11,7 +11,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
+	"os/user"
+	"path"
 	"strings"
 
 	"github.com/scripthaus-dev/scripthaus/pkg/history"
@@ -33,8 +34,8 @@ type CommandDef struct {
 
 	// directives
 	RawDirectives       []RawDirective
-	RequireEnvVars      []string
 	DirectivesProcessed bool
+	ChangeDir           string
 	Warnings            []string
 }
 
@@ -62,18 +63,18 @@ type ScriptDef struct {
 	PlaybookCommand string
 }
 
-func (cdef *CommandDef) FullScriptName() string {
-	if cdef.Playbook.CanonicalName == "^" || cdef.Playbook.CanonicalName == "." {
-		fmt.Sprintf("%s%s", cdef.Playbook.CanonicalName, cdef.Name)
-	}
-	return fmt.Sprintf("%s::%s", cdef.Playbook.CanonicalName, cdef.Name)
-}
-
 func (cdef *CommandDef) OrigScriptName() string {
 	if cdef.Playbook.OrigName == "^" || cdef.Playbook.OrigName == "." || cdef.Playbook.OrigName == "" {
 		return fmt.Sprintf("%s%s", cdef.Playbook.OrigName, cdef.Name)
 	}
 	return fmt.Sprintf("%s::%s", cdef.Playbook.OrigName, cdef.Name)
+}
+
+func (cdef *CommandDef) FullScriptName() string {
+	if cdef.Playbook.CanonicalName == "^" || cdef.Playbook.CanonicalName == "." {
+		fmt.Sprintf("%s%s", cdef.Playbook.CanonicalName, cdef.Name)
+	}
+	return fmt.Sprintf("%s::%s", cdef.Playbook.CanonicalName, cdef.Name)
 }
 
 type ExecItem struct {
@@ -85,20 +86,6 @@ type ExecItem struct {
 
 func (item *ExecItem) CmdShortName() string {
 	return fmt.Sprintf("%s %s", item.CmdName, item.FullScriptName)
-}
-
-func (def ScriptDef) FullScriptName() string {
-	if def.PlaybookFile != "" && def.PlaybookCommand == "" {
-		return def.PlaybookFile
-	}
-	if def.PlaybookFile != "" && def.PlaybookCommand != "" {
-		return fmt.Sprintf("%s/%s", def.PlaybookFile, def.PlaybookCommand)
-	}
-	return ""
-}
-
-func (def ScriptDef) IsEmpty() bool {
-	return def.PlaybookFile == "" && def.PlaybookCommand == ""
 }
 
 type RunOptsType struct {
@@ -181,52 +168,38 @@ func combine(rest ...interface{}) []string {
 	return list
 }
 
-var DirectiveRe = regexp.MustCompile("^\\s*(\\S+)(?:\\s+(.*))?$")
-
-// technically env vars can have any character, but in practice, this makes more sense
-var EnvVarRe = regexp.MustCompile("^[a-zA-Z_][a-zA-Z0-9_]*$")
-
-func (cdef *CommandDef) processDirective(dirStr string, lineNo int) error {
-	parts := DirectiveRe.FindStringSubmatch(dirStr)
-	if len(parts) == 0 {
-		warning := fmt.Sprintf("malformed @scripthaus directive '%s' (line %d)", dirStr, lineNo)
-		cdef.Warnings = append(cdef.Warnings, warning)
-		return nil
-	}
-	dirType := parts[1]
-	dirArgs := parts[2]
-	if dirType == "require" {
-		envName := strings.TrimSpace(dirArgs)
-		if !EnvVarRe.MatchString(envName) {
-			warning := fmt.Sprintf("@scripthaus 'require' directive, invalid env var name '%s' (line %d)", envName, lineNo)
-			cdef.Warnings = append(cdef.Warnings, warning)
-			return nil
-		}
-		cdef.RequireEnvVars = append(cdef.RequireEnvVars, envName)
-		return nil
-	} else {
-		warning := fmt.Sprintf("invalid @scripthaus directive '%s' (line %d)", dirType, lineNo)
-		cdef.Warnings = append(cdef.Warnings, warning)
-		return nil
-	}
-}
-
-// returns (warnings, error)
 func (cdef *CommandDef) processDirectives() error {
 	if cdef.DirectivesProcessed {
 		return nil
 	}
 	cdef.DirectivesProcessed = true
-	if cdef.Lang != "sh" && cdef.Lang != "bash" {
-		return nil
-	}
-	lines := strings.Split(cdef.ScriptText, "\n")
-	for idx, line := range lines {
-		if strings.HasPrefix(line, "# @scripthaus ") {
-			err := cdef.processDirective(line[14:], idx+1)
-			if err != nil {
-				return err
+	for _, dir := range cdef.RawDirectives {
+		if dir.Type == "command" {
+			continue // already processed
+		} else if dir.Type == "cd" {
+			dirName := strings.TrimSpace(dir.Data)
+			if dirName == ":playbook" {
+				cdef.ChangeDir = cdef.Playbook.PlaybookDir()
+				continue
 			}
+			if dirName == ":current" {
+				cdef.ChangeDir = ""
+				continue
+			}
+			if strings.HasPrefix(dirName, "~") {
+				osUser, _ := user.Current()
+				if osUser != nil && osUser.HomeDir != "" {
+					cdef.ChangeDir = path.Join(osUser.HomeDir, dirName[1:])
+				}
+				continue
+			}
+			if !path.IsAbs(dirName) {
+				cdef.Warnings = append(cdef.Warnings, fmt.Sprintf("'cd' directive must be absolute, got '%s' (ignoring)", dirName))
+				continue
+			}
+			cdef.ChangeDir = dirName
+		} else {
+			cdef.Warnings = append(cdef.Warnings, fmt.Sprintf("invalid directive '%s' (ignoring)", dir.Type))
 		}
 	}
 	return nil
@@ -253,15 +226,9 @@ func makeFullEnv(runSpec SpecType) []string {
 }
 
 func (cdef *CommandDef) CheckCommand(runSpec SpecType) error {
-	cdef.processDirectives()
-	fullEnv := makeFullEnv(runSpec)
-	envMap := makeEnvMap(fullEnv)
-	if len(cdef.RequireEnvVars) > 0 {
-		for _, envName := range cdef.RequireEnvVars {
-			if envMap[envName] == "" {
-				return fmt.Errorf("required variable '%s' is not set", envName)
-			}
-		}
+	err := cdef.processDirectives()
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -271,12 +238,18 @@ func (cdef *CommandDef) BuildExecCommand(ctx context.Context, runSpec SpecType) 
 	if err != nil {
 		return nil, err
 	}
+	if cdef.ChangeDir != "" {
+		execItem.Cmd.Dir = cdef.ChangeDir
+	}
 	execItem.FullScriptName = cdef.FullScriptName()
 	execItem.HItem = history.BuildHistoryItem()
 	execItem.HItem.ProjectDir = cdef.Playbook.ProjectDir
 	execItem.HItem.PlaybookFile = cdef.Playbook.CanonicalName
 	execItem.HItem.PlaybookCommand = cdef.Name
 	execItem.HItem.ScriptType = cdef.Lang
+	if cdef.ChangeDir != "" {
+		execItem.HItem.Cwd = cdef.ChangeDir
+	}
 	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
 	return execItem, nil
 }
