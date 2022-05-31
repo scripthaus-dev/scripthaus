@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/scripthaus-dev/scripthaus/pkg/base"
 	"github.com/scripthaus-dev/scripthaus/pkg/commanddef"
 	"github.com/scripthaus-dev/scripthaus/pkg/helptext"
@@ -228,7 +229,14 @@ func parseRunOpts(gopts globalOptsType) (commanddef.RunOptsType, error) {
 					rtn.RunSpec.Env = append(rtn.RunSpec.Env, envPair)
 				}
 			} else {
-				return rtn, fmt.Errorf("'%s [env-file]' not supported", argStr)
+				envFile := iter.Next()
+				envMap, err := godotenv.Read(envFile)
+				if err != nil {
+					return rtn, fmt.Errorf("%s '%s', cannot read env file: %w", argStr, envFile, err)
+				}
+				for envVar, envVal := range envMap {
+					rtn.RunSpec.Env = append(rtn.RunSpec.Env, fmt.Sprintf("%s=%s", envVar, envVal))
+				}
 			}
 			continue
 		}
