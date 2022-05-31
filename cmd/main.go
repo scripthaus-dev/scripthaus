@@ -73,9 +73,12 @@ type listOptsType struct {
 
 // returns exitcode, error
 func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalOptsType) (int, error) {
-	err := history.InsertHistoryItem(execItem.HItem)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[^scripthaus] error trying to add run to history db: %v\n", err)
+	if execItem.HItem != nil {
+		err := history.InsertHistoryItem(execItem.HItem)
+		if err != nil {
+			// keep going, this is just a warning, should not stop the command from running
+			fmt.Fprintf(os.Stderr, "[^scripthaus] error trying to add run to history db: %v\n", err)
+		}
 	}
 	if gopts.Verbose > 0 && len(warnings) > 0 {
 		for _, warning := range warnings {
@@ -84,7 +87,7 @@ func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalO
 		fmt.Fprintf(os.Stderr, "\n")
 	}
 	startTs := time.Now()
-	err = execItem.Cmd.Start()
+	err := execItem.Cmd.Start()
 	if err != nil {
 		return 1, fmt.Errorf("cannot start command '%s': %w", execItem.CmdShortName(), err)
 	}
@@ -94,8 +97,10 @@ func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalO
 	if err != nil {
 		exitCode = err.(*exec.ExitError).ExitCode()
 	}
-	execItem.HItem.ExitCode = sql.NullInt64{Valid: true, Int64: int64(exitCode)}
-	execItem.HItem.DurationMs = sql.NullInt64{Valid: true, Int64: cmdDuration.Milliseconds()}
+	if execItem.HItem != nil {
+		execItem.HItem.ExitCode = sql.NullInt64{Valid: true, Int64: int64(exitCode)}
+		execItem.HItem.DurationMs = sql.NullInt64{Valid: true, Int64: cmdDuration.Milliseconds()}
+	}
 	if !gopts.Quiet {
 		var warningsStr string
 		if len(warnings) > 0 {
@@ -104,9 +109,11 @@ func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalO
 		fmt.Printf("\n")
 		fmt.Printf("[^scripthaus] ran '%s', duration=%0.3fs, exitcode=%d%s\n", execItem.CmdShortName(), cmdDuration.Seconds(), exitCode, warningsStr)
 	}
-	err = history.UpdateHistoryItem(execItem.HItem)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[^scripthaus] error trying to update history item in db: %v\n", err)
+	if execItem.HItem != nil {
+		err = history.UpdateHistoryItem(execItem.HItem)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[^scripthaus] error trying to update history item in db: %v\n", err)
+		}
 	}
 	return exitCode, nil
 }

@@ -36,6 +36,7 @@ type CommandDef struct {
 	RawDirectives       []RawDirective
 	DirectivesProcessed bool
 	ChangeDir           string
+	NoLog               bool
 	Warnings            []string
 }
 
@@ -79,6 +80,7 @@ func (cdef *CommandDef) FullScriptName() string {
 
 type ExecItem struct {
 	CmdName        string
+	CmdDef         *CommandDef
 	Cmd            *exec.Cmd
 	FullScriptName string
 	HItem          *history.HistoryItem
@@ -137,17 +139,17 @@ func (cdef *CommandDef) buildNormalCommand(ctx context.Context, runSpec SpecType
 		args := append([]string{"-c", cdef.ScriptText, cdef.FullScriptName()}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, cdef.Lang, args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return &ExecItem{CmdName: cdef.Lang, Cmd: execCmd}, nil
+		return &ExecItem{CmdDef: cdef, CmdName: cdef.Lang, Cmd: execCmd}, nil
 	} else if cdef.Lang == "python" || cdef.Lang == "python3" || cdef.Lang == "python2" {
 		args := append([]string{"-c", cdef.ScriptText}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, cdef.Lang, args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return &ExecItem{CmdName: cdef.Lang, Cmd: execCmd}, nil
+		return &ExecItem{CmdDef: cdef, CmdName: cdef.Lang, Cmd: execCmd}, nil
 	} else if cdef.Lang == "node" || cdef.Lang == "js" {
 		args := append([]string{"--eval", cdef.ScriptText, "--"}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, "node", args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return &ExecItem{CmdName: "node", Cmd: execCmd}, nil
+		return &ExecItem{CmdDef: cdef, CmdName: "node", Cmd: execCmd}, nil
 	}
 	return nil, fmt.Errorf("invalid command language '%s', not supported", cdef.Lang)
 }
@@ -198,6 +200,8 @@ func (cdef *CommandDef) processDirectives() error {
 				continue
 			}
 			cdef.ChangeDir = dirName
+		} else if dir.Type == "nolog" {
+			cdef.NoLog = true
 		} else {
 			cdef.Warnings = append(cdef.Warnings, fmt.Sprintf("invalid directive '%s' (ignoring)", dir.Type))
 		}
@@ -242,14 +246,24 @@ func (cdef *CommandDef) BuildExecCommand(ctx context.Context, runSpec SpecType) 
 		execItem.Cmd.Dir = cdef.ChangeDir
 	}
 	execItem.FullScriptName = cdef.FullScriptName()
-	execItem.HItem = history.BuildHistoryItem()
-	execItem.HItem.ProjectDir = cdef.Playbook.ProjectDir
-	execItem.HItem.PlaybookFile = cdef.Playbook.CanonicalName
-	execItem.HItem.PlaybookCommand = cdef.Name
-	execItem.HItem.ScriptType = cdef.Lang
-	if cdef.ChangeDir != "" {
-		execItem.HItem.Cwd = cdef.ChangeDir
+	shouldLog := true
+	if runSpec.NoLog {
+		shouldLog = false
+	} else if runSpec.ForceLog {
+		shouldLog = true
+	} else if cdef.NoLog {
+		shouldLog = false
 	}
-	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
+	if shouldLog {
+		execItem.HItem = history.BuildHistoryItem()
+		execItem.HItem.ProjectDir = cdef.Playbook.ProjectDir
+		execItem.HItem.PlaybookFile = cdef.Playbook.CanonicalName
+		execItem.HItem.PlaybookCommand = cdef.Name
+		execItem.HItem.ScriptType = cdef.Lang
+		if cdef.ChangeDir != "" {
+			execItem.HItem.Cwd = cdef.ChangeDir
+		}
+		execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
+	}
 	return execItem, nil
 }
