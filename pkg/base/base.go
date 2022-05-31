@@ -2,7 +2,7 @@ package base
 
 import "regexp"
 
-const ScriptHausVersion = "0.4.0"
+const ScriptHausVersion = "0.5.0"
 const ScHomeVarName = "SCRIPTHAUS_HOME"
 const HomeVarName = "HOME"
 const DBFileName = "scripthaus.db"
