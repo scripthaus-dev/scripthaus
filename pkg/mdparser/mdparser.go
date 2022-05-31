@@ -128,6 +128,56 @@ func blockStartIndex(block ast.Node, mdSource []byte) (int, int) {
 	return mdIdx, findLineNo(mdIdx, mdSource)
 }
 
+func ExtractRawDirectives(codeText string) []commanddef.RawDirective {
+	var rtn []commanddef.RawDirective
+	lines := strings.Split(codeText, "\n")
+	for idx, line := range lines {
+		var rawDirStr string
+		if strings.HasPrefix(line, "# @scripthaus ") {
+			rawDirStr = line[14:]
+		} else if strings.HasPrefix(line, "// @scripthaus ") {
+			rawDirStr = line[15:]
+		}
+		rawDirStr = strings.TrimSpace(rawDirStr)
+		if rawDirStr == "" {
+			continue
+		}
+		dirFields := strings.SplitN(rawDirStr, " ", 2)
+
+		rawDir := commanddef.RawDirective{}
+		rawDir.LineNo = idx + 1
+		rawDir.Type = strings.TrimSpace(dirFields[0])
+		if len(dirFields) == 2 {
+			rawDir.Data = strings.TrimSpace(dirFields[1])
+		}
+		rtn = append(rtn, rawDir)
+	}
+	return rtn
+}
+
+var hasDashPrefix = regexp.MustCompile("^\\s+-\\s+(.*)")
+
+func GetCommandDirective(dirs []commanddef.RawDirective) (string, string) {
+	for _, dir := range dirs {
+		if dir.Type != "command" {
+			continue
+		}
+		firstSpace := strings.Index(dir.Data, " ")
+		if firstSpace == -1 {
+			return dir.Data, ""
+		}
+		commandName := dir.Data[0:firstSpace]
+		restStr := dir.Data[firstSpace:]
+		var commandShortDesc string
+		m := hasDashPrefix.FindStringSubmatch(restStr)
+		if m != nil {
+			commandShortDesc = m[1]
+		}
+		return commandName, commandShortDesc
+	}
+	return "", ""
+}
+
 func ParseCommands(playbook *pathutil.ResolvedPlaybook, mdSource []byte) ([]commanddef.CommandDef, []string, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
@@ -151,59 +201,72 @@ func ParseCommands(playbook *pathutil.ResolvedPlaybook, mdSource []byte) ([]comm
 
 	var defs []commanddef.CommandDef
 	var warnings []string
-	var curDef *commanddef.CommandDef
 
+	breakIdx := -1
 	for node := doc.FirstChild(); node != nil; node = node.NextSibling() {
 		breakNode, _ := node.(*ast.ThematicBreak)
 		headingNode, _ := node.(*ast.Heading)
 		codeNode, _ := node.(*ast.FencedCodeBlock)
 
-		if breakNode != nil || (headingNode != nil && headingNode.Level <= 4) {
-			// command break
-			if curDef != nil && curDef.Name != "" {
-				warnings = append(warnings, fmt.Sprintf("potential script heading '%s' found with no associated code block (line %d)", curDef.Name, curDef.StartLineNo))
-			}
-			curDef = nil
+		if breakNode != nil {
+			breakIdx = -1
+			continue
+		}
+		if headingNode != nil && headingNode.Level < 4 {
+			breakIdx = -1
+			continue
 		}
 		if headingNode != nil && headingNode.Level == 4 {
-			child := headingNode.FirstChild()
-			if child != nil && child.Kind() == ast.KindCodeSpan {
-				startIdx, startLineNo := blockStartIndex(headingNode, mdSource)
-				defName := string(child.Text(mdSource))
-				if !IsValidScriptName(defName) {
-					warnings = append(warnings, fmt.Sprintf("potential script heading found but bad script name '%s' is invalid (line %d)", defName, startLineNo))
-					continue
-				}
-				curDef = &commanddef.CommandDef{Playbook: playbook, Name: defName, StartIndex: startIdx, StartLineNo: startLineNo}
-			}
+			breakIdx, _ = blockStartIndex(headingNode, mdSource)
+			continue
 		}
 
 		if codeNode != nil && codeNode.Info != nil {
-			infoText := string(codeNode.Info.Text(mdSource))
-			lang, blockInfo := parseInfo(infoText)
-			if blockInfo["scripthaus"] == "" {
+			lineNo := findLineNo(codeNode.Info.Segment.Start, mdSource)
+			scriptText := textFromLines(mdSource, codeNode.Lines())
+			rawDirs := ExtractRawDirectives(scriptText)
+			name, shortDesc := GetCommandDirective(rawDirs)
+			if name == "" {
+				if len(rawDirs) != 0 {
+					warnings = append(warnings, fmt.Sprintf("code block has scripthaus directives, but no 'command' directive (line %d)", lineNo))
+				}
+				// not a scripthaus code block.  reset breakIdx
+				breakIdx = -1
 				continue
 			}
+			// this is a scripthaus code block
+			infoText := string(codeNode.Info.Text(mdSource))
+			lang, blockInfo := parseInfo(infoText)
 			if !isAllowedBlockLanguage(lang) {
-				lineNo := findLineNo(codeNode.Info.Segment.Start, mdSource)
 				warnings = append(warnings, fmt.Sprintf("scripthaus code block found info='%s' with invalid language '%s' (line %d)", infoText, lang, lineNo))
 				continue
 			}
-			if curDef == nil {
-				lineNo := findLineNo(codeNode.Info.Segment.Start, mdSource)
-				warnings = append(warnings, fmt.Sprintf("scripthaus code block found info='%s' with no level 4 heading to name it (line %d)", infoText, lineNo))
-				continue
-			}
-			curDef.Lang = lang
-			curDef.ScriptText = textFromLines(mdSource, codeNode.Lines())
-			curDef.Info = blockInfo
+			newDef := &commanddef.CommandDef{Playbook: playbook}
+			newDef.Name = name
+			newDef.ShortText = shortDesc
+			newDef.Lang = lang
+			newDef.ScriptText = scriptText
+			newDef.Info = blockInfo
 			cbStartIdx := mdIndexBackToNewLine(codeNode.Info.Segment.Start, mdSource)
-			curDef.HelpText = string(mdSource[curDef.StartIndex:cbStartIdx])
-			curDef.RawCodeText = rawCodeText(curDef.Name, codeNode, mdSource)
-			defs = append(defs, *curDef)
-			curDef = nil
+			if breakIdx == -1 {
+				newDef.StartIndex = cbStartIdx
+				newDef.StartLineNo = findLineNo(cbStartIdx, mdSource)
+				// no HelpText in this case
+			} else {
+				newDef.StartIndex = breakIdx
+				newDef.StartLineNo = findLineNo(cbStartIdx, mdSource)
+				newDef.HelpText = strings.TrimSpace(string(mdSource[breakIdx:cbStartIdx]))
+			}
+			newDef.RawCodeText = strings.TrimSpace(rawCodeText(newDef.Name, codeNode, mdSource))
+			defs = append(defs, *newDef)
+			breakIdx = -1
 			continue
 		}
+
+		if breakIdx == -1 && node.Type() == ast.TypeBlock {
+			breakIdx, _ = blockStartIndex(node, mdSource)
+		}
+
 	}
 	return defs, warnings, nil
 }
