@@ -254,7 +254,7 @@ func (cdef *CommandDef) BuildExecCommand(ctx context.Context, runSpec SpecType) 
 	} else if cdef.NoLog {
 		shouldLog = false
 	}
-	if shouldLog {
+	if shouldLog && !history.HistoryDisabledFile() {
 		execItem.HItem = history.BuildHistoryItem()
 		execItem.HItem.ProjectDir = cdef.Playbook.ProjectDir
 		execItem.HItem.PlaybookFile = cdef.Playbook.CanonicalName

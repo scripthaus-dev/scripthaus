@@ -7,10 +7,10 @@ Usage: scripthaus [global-opts] [command] [command-opts]
 
 Commands:
     version         - print version and exit
-    run             - runs a playbook script
+    run             - runs a playbook command
     list            - list commands available in playbook
     add             - quickly add a command to a playbook
-    show            - show help and script text for a playbook script
+    show            - show help and script text for a playbook command
     history         - show command history
     manage          - manage history items
     help            - describe commands and usage
@@ -19,7 +19,7 @@ Commands:
 Global Options:
     -p, --playbook [file]    - specify a playbook to use
     -v, --verbose            - more debugging output
-    -q, --quiet              - do not show version and command summary info (script output only)
+    -q, --quiet              - do not show version and command summary info (command output only)
 
 Resources:
     github          - https://github.com/scripthaus-dev/scripthaus
@@ -45,7 +45,7 @@ Examples:
 If the global '--playbook' option is given, then 'playbook' must be ommitted and
 command will interpreted as a command inside of the given playbook.
 
-Any arguments after 'script' will be passed verbatim as options to the script.
+Any arguments after 'command' will be passed verbatim as options to the command.
 
 Run Options:
     --nolog                  - will not log this command to scripthaus history
@@ -57,7 +57,7 @@ Run Options:
 var ListText = strings.TrimSpace(`
 Usage: scripthaus [global-opts] list [list-opts] [playbook]
 
-The 'list' command will list the scripts available to run in the given
+The 'list' command will list the commands available to run in the given
 playbook.  The playbook can optionally be passed via the -p option.
 
 If no playbook is passed list will find all playbooks in the SCRIPTHAUS_PATH
@@ -70,15 +70,15 @@ List Options:
 `)
 
 var ShowText = strings.TrimSpace(`
-Usage: scripthaus show [show-opts] [playbook]::[script]
+Usage: scripthaus show [show-opts] [playbook]::[command]
        scripthaus show [show-opts] [playbook]
 
-The 'show' command will show the help for a particular script in a playbook.
+The 'show' command will show the help for a particular command in a playbook.
 By default it will show the markdown text and the code block that
-make up the script.
+make up the command.
 
-If no script is given, this will behave like the 'list' command and
-show all of the scripts in the given playbook file.
+If no command is given, this will behave like the 'list' command and
+show all of the commands in the given playbook file.
 
 Note that playbook may also be specified using the global --playbook option.
 
@@ -102,9 +102,9 @@ into self-documenting markdown files.
 * Share - Save your files in git and share them with your team
 
 Commands:
-    run             - runs a standalone or playbook script
+    run             - runs a playbook command
     list            - list commands available in playbook
-    show            - show help and script text for a playbook script
+    show            - show help and script text for a playbook command
     add             - adds a command from your history to playbook
     history         - show command history
     help [command]  - describe commands and usage
@@ -121,7 +121,7 @@ Usage: scripthaus add [add-opts] [playbook]::[command] -c "[command-text]"
        scripthaus add [add-opts] [playbook]::[command] - < [command-text-file]
 
 The 'add' command will add a command to the playbook specified, and give it
-the name [scriptname].  There are three ways to specify a command:
+the name [command].  There are three ways to specify a command:
 
 The first, with "-c" passes the command as a single argument which
 is appropriate for passing history items, e.g. -c "!!" or -c "[:backtick]fc -ln 500 502[:backtick]"
@@ -131,15 +131,15 @@ as the command (and separate the arguments with spaces),
 e.g. -- echo -n "hello".
 
 The third form with "-" will read the command from stdin.
-This works great for importing an existing script or to grab
+This works great for importing an existing command or to grab
 a set of history commands e.g. - 
 
 Add Options:
-    -t, --type [scripttype]    - (required) the language type for the script (e.g. bash, python3)
+    -t, --type [scripttype]    - (required) the language type for the command (e.g. bash, python3)
     -m, --message [message]    - add some help text for the command.  markdown, will be added
                                  above the code fence.
     -s, --short-desc [message] - short description for command (one line)
-    -c [script-text]           - the text for the script to be added
+    -c [command-text]          - the text for the command to be added
     --dry-run                  - print messages, but do not modify playbook file
 `))
 

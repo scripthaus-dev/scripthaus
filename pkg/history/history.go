@@ -547,6 +547,19 @@ func reverseHistorySlice(arr []*HistoryItem) {
 	}
 }
 
+func HistoryDisabledFile() bool {
+	scHome, _ := pathutil.DefaultResolver().GetScHomeDir()
+	if scHome == "" {
+		return false
+	}
+	disableFile := path.Join(scHome, ".nohistory")
+	finfo, _ := os.Stat(disableFile)
+	if finfo != nil {
+		return true
+	}
+	return false
+}
+
 func QueryHistory(query HistoryQuery) ([]*HistoryItem, error) {
 	sqlStr := `
         SELECT * FROM history
