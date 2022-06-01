@@ -75,22 +75,6 @@ func parseInfo(info string) (string, map[string]string) {
 	return language, fields
 }
 
-func isAllowedBlockLanguage(lang string) bool {
-	switch lang {
-	case "bash", "sh":
-		return true
-
-	case "python", "python3":
-		return true
-
-	case "node":
-		return true
-
-	default:
-		return false
-	}
-}
-
 func rawCodeText(name string, block *ast.FencedCodeBlock, mdSource []byte) string {
 	lines := block.Lines()
 	startPos := mdIndexBackToNewLine(block.Info.Segment.Start, mdSource)
@@ -237,7 +221,7 @@ func ParseCommands(playbook *pathutil.ResolvedPlaybook, mdSource []byte) ([]comm
 			// this is a scripthaus code block
 			infoText := string(codeNode.Info.Text(mdSource))
 			lang, blockInfo := parseInfo(infoText)
-			if !isAllowedBlockLanguage(lang) {
+			if !base.IsValidScriptType(lang) {
 				warnings = append(warnings, fmt.Sprintf("scripthaus code block found info='%s' with invalid language '%s' (line %d)", infoText, lang, lineNo))
 				continue
 			}

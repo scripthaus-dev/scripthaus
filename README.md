@@ -32,25 +32,35 @@ This will build the `scripthaus` binary in your local directory.  You can then `
 
 To make typing ScriptHaus commands easier, I recommend adding `alias s="scripthaus"` to your `.bash_profile`.
 
-## Playbooks and Scripts
+## Playbooks
 
-ScriptHaus allows you to organize your bash one-liners and small Python and JavaScript scripts into Markdown "playbooks"
-(playbooks must have the extension ".md").
+ScriptHaus allows you to organize your bash one-liners and small Python and JavaScript scripts into Markdown "playbooks".
 
-Scripts are contained within playbooks.  A script begins with a level 4 header with the name of the command in backticks.
-Then add a code fence with the text of your script.  The code fence should have its language set to an allowed scripthaus type
-(sh, bash, python, python2, python3, js, or node) with the **extra tag** "scripthaus" after the language.  Any additional markdown between the
-header and the code fence is documentation.  Here's a simple example:
+Commands are contained within playbooks.  You can turn any code fence (with a valid language, e.g. "bash", "python", "js", etc.)
+into a ScriptHaus command by adding the ScriptHaus *directive*:
+
+```
+# @scripthaus command [name] - [short-description]
+```
+
+Any markdown that comes before the command, up until you hit a level 1-4 header, thematic break, or another code fence will
+become the command's documentation.
 
 ````markdown
-#### `hi`
+This is the simplest ScriptHaus command.
+The markdown before the command will turn into help text.
 
-A simple command that just echos "hi" to the console.
-
-```bash scripthaus
+```bash
+# @scripthaus command hi - a simple command that just echos "hi" to the console
 echo hi
 ```
 ````
+
+Assuming that markdown was placed into a file named "commands.md" you can run:
+```
+> scripthaus run commands.md::hi
+hi
+```
 
 ## Project and Home Directories
 
@@ -68,11 +78,9 @@ be easily accessed as `^[file.md]::[script]`.
 you can access any command in this scripthaus.md file as `.[script]`.  Other md files in the project
 root can be accessed as `.[file.md]::[script]` (note that scripthaus.md *must* also exist).
 
-Note: you can easily replace the "scripts" section of your package.json using a scripthaus.md.
+## Running a Command
 
-## Running a Script
-
-To run a script from a playbook use `scripthaus run [playbook]::[script]`.
+To run a command from a playbook use `scripthaus run [playbook]::[command]`.
 
 You can also reference scripts from your *global* or *project* roots.  Here are some examples:
 
@@ -86,7 +94,7 @@ scripthaus run .build.md::test  # runs the 'test' command from the build.md file
 scripthaus run build.md::test
 ```
 
-## Adding a Script to Playbook
+## Adding a Command to Playbook
 
 You can always edit the markdown files by hand.  That's the recommended way of converting your old text notes with commands
 into a runnable ScriptHaus playbook.
@@ -112,7 +120,7 @@ To list all the commands in a playbook run:
 scripthaus show [playbook]
 ```
 
-To show the raw markdown for any script in a playbook (including the command text) just run:
+To show the raw markdown for any command in a playbook (including the command text) just run:
 
 ```
 scripthaus show [playbook]::[script]

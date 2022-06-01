@@ -101,13 +101,17 @@ func runExecItem(execItem *commanddef.ExecItem, warnings []string, gopts globalO
 		execItem.HItem.ExitCode = sql.NullInt64{Valid: true, Int64: int64(exitCode)}
 		execItem.HItem.DurationMs = sql.NullInt64{Valid: true, Int64: cmdDuration.Milliseconds()}
 	}
-	if !gopts.Quiet {
+	if gopts.ShowSummary {
 		var warningsStr string
+		var noLogStr string
 		if len(warnings) > 0 {
 			warningsStr = fmt.Sprintf(" (has warnings)")
 		}
+		if execItem.HItem == nil {
+			noLogStr = fmt.Sprintf(" (not logged)")
+		}
 		fmt.Printf("\n")
-		fmt.Printf("[^scripthaus] ran '%s', duration=%0.3fs, exitcode=%d%s\n", execItem.CmdShortName(), cmdDuration.Seconds(), exitCode, warningsStr)
+		fmt.Printf("[^scripthaus] ran '%s', duration=%0.3fs, exitcode=%d%s%s\n", execItem.CmdShortName(), cmdDuration.Seconds(), exitCode, noLogStr, warningsStr)
 	}
 	if execItem.HItem != nil {
 		err = history.UpdateHistoryItem(execItem.HItem)
@@ -663,8 +667,8 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 	if addOpts.ScriptType == "" {
 		return 1, fmt.Errorf("must specify a script-type using '-t'")
 	}
-	if !commanddef.IsValidScriptType(addOpts.ScriptType) {
-		return 1, fmt.Errorf("must specify a valid script type ('%s' is not valid), must be one of: %s", addOpts.ScriptType, strings.Join(commanddef.ValidScriptTypes(), ", "))
+	if !base.IsValidScriptType(addOpts.ScriptType) {
+		return 1, fmt.Errorf("must specify a valid script type ('%s' is not valid), must be one of: %s", addOpts.ScriptType, strings.Join(base.ValidScriptTypes(), ", "))
 	}
 	resolvedPlaybook, err := pathutil.DefaultResolver().ResolvePlaybook(addOpts.Script.PlaybookFile)
 	if err != nil {
@@ -737,6 +741,7 @@ type globalOptsType struct {
 	SpecName     string
 	CommandName  string
 	CommandArgs  []string
+	ShowSummary  bool
 }
 
 func parseGlobalOpts(args []string) (globalOptsType, error) {
@@ -750,6 +755,10 @@ func parseGlobalOpts(args []string) (globalOptsType, error) {
 		}
 		if argStr == "-q" || argStr == "--quiet" {
 			opts.Quiet = true
+			continue
+		}
+		if argStr == "-s" || argStr == "--summary" {
+			opts.ShowSummary = true
 			continue
 		}
 		if argStr == "-p" || argStr == "--playbook" {
