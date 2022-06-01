@@ -212,6 +212,9 @@ func (r Resolver) resolvePlaybookInDir(origName string, curDir string, playbookN
 
 // prefix is either "^", "[.]*" (can be empty).  empty prefix is the same as "."
 func (r Resolver) FindPrefixDir(prefix string) (string, error) {
+	if prefix == "" {
+		return "", fmt.Errorf("invalid empty prefix dir passed to FindPrefixDir (internal error)")
+	}
 	if prefix == "^" {
 		return r.GetScHomeDir()
 	}
@@ -264,13 +267,14 @@ func (r Resolver) ResolvePlaybook(playbookName string) (*ResolvedPlaybook, error
 			if err != nil {
 				return nil, err
 			}
-			if found {
-				return &ResolvedPlaybook{
-					OrigName:      playbookName,
-					CanonicalName: fullPath,
-					ResolvedFile:  fullPath,
-				}, nil
+			if !found {
+				return nil, fmt.Errorf("playbook not found '%s' (resolved to '%s')", playbookName, fullPath)
 			}
+			return &ResolvedPlaybook{
+				OrigName:      playbookName,
+				CanonicalName: fullPath,
+				ResolvedFile:  fullPath,
+			}, nil
 		}
 		dirName, err := r.FindPrefixDir(prefix)
 		if err != nil {

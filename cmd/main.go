@@ -343,7 +343,11 @@ func runListCommandInternal(gopts globalOptsType, playbookFile string) (int, err
 	}
 	for _, command := range commands {
 		if command.ShortText != "" {
-			fmt.Printf("  %-*s - %s\n", maxScriptNameLen, command.OrigScriptName(), command.ShortText)
+			shortText := command.ShortText
+			if len(shortText) > 80 {
+				shortText = shortText[0:77] + "..."
+			}
+			fmt.Printf("  %-*s - %s\n", maxScriptNameLen, command.OrigScriptName(), shortText)
 		} else {
 			fmt.Printf("  %-*s\n", maxScriptNameLen, command.OrigScriptName())
 		}
@@ -576,6 +580,7 @@ type addOptsType struct {
 	Script     commanddef.ScriptDef
 	ScriptType string
 	ScriptText string
+	ShortDesc  string
 	Message    string
 	DryRun     bool
 }
@@ -599,6 +604,19 @@ func parseAddOpts(opts globalOptsType) (addOptsType, error) {
 				return rtn, fmt.Errorf("'%s [message]' missing message", argStr)
 			}
 			rtn.Message = iter.Next()
+			continue
+		}
+		if argStr == "-s" || argStr == "--short-desc" {
+			if !iter.HasNext() {
+				return rtn, fmt.Errorf("'%s [desc]' missing short-description string", argStr)
+			}
+			rtn.ShortDesc = iter.Next()
+			if strings.Index(rtn.ShortDesc, "\n") != -1 {
+				return rtn, fmt.Errorf("'%s [desc]' short description cannot contain a newline character", argStr)
+			}
+			if len(rtn.ShortDesc) > 80 {
+				return rtn, fmt.Errorf("'%s [desc]' short description cannot be more than 80 characters", argStr)
+			}
 			continue
 		}
 		if argStr == "-c" {
@@ -672,6 +690,9 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 	}
 	resolvedPlaybook, err := pathutil.DefaultResolver().ResolvePlaybook(addOpts.Script.PlaybookFile)
 	if err != nil {
+		if strings.Index(err.Error(), "not found") != -1 {
+			fmt.Printf("[^scripthaus] add will not create a new markdown file.  touch the file and re-run the add if this was your intention\n")
+		}
 		return 1, err
 	}
 	cmdDefs, err := readCommandsFromFile(resolvedPlaybook)
@@ -685,17 +706,24 @@ func runAddCommand(gopts globalOptsType) (errCode int, errRtn error) {
 	}
 	var buf bytes.Buffer
 	fmt.Printf("[^scripthaus] adding command '%s' to %s:\n", addOpts.Script.PlaybookCommand, resolvedPlaybook.OrigShowStr())
-	buf.WriteString(fmt.Sprintf("\n#### `%s`\n\n", addOpts.Script.PlaybookCommand))
+	buf.WriteString("\n")
 	if addOpts.Message != "" {
 		buf.WriteString(fmt.Sprintf("%s\n\n", addOpts.Message))
 	}
-	buf.WriteString(fmt.Sprintf("```%s scripthaus\n%s\n```\n", addOpts.ScriptType, addOpts.ScriptText))
+	buf.WriteString(fmt.Sprintf("```%s\n", addOpts.ScriptType))
+	shortDesc := addOpts.ShortDesc
+	if shortDesc != "" {
+		shortDesc = " - " + shortDesc
+	}
+	buf.WriteString(fmt.Sprintf("%s @scripthaus command %s%s\n", base.GetCommentString(addOpts.ScriptType), addOpts.Script.PlaybookCommand, shortDesc))
+	buf.WriteString(fmt.Sprintf("%s\n", addOpts.ScriptText))
+	buf.WriteString(fmt.Sprintf("```\n"))
 	fmt.Printf("%s\n", buf.String())
 	if addOpts.DryRun {
 		fmt.Printf("[^scripthaus] Not modifying file, --dry-run specified\n")
 		return 0, nil
 	}
-	fd, err := os.OpenFile(resolvedPlaybook.ResolvedFile, os.O_APPEND|os.O_WRONLY, 0644)
+	fd, err := os.OpenFile(resolvedPlaybook.ResolvedFile, os.O_APPEND|os.O_WRONLY, 0666)
 	defer func() {
 		closeErr := fd.Close()
 		if closeErr != nil && errRtn == nil {

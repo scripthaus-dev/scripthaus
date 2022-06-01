@@ -136,9 +136,8 @@ a set of history commands e.g. -
 
 Add Options:
     -t, --type [scripttype]    - (required) the language type for the command (e.g. bash, python3)
-    -m, --message [message]    - add some help text for the command.  markdown, will be added
-                                 above the code fence.
-    -s, --short-desc [message] - short description for command (one line)
+    -m, --message [message]    - add some help text for the command.  markdown format
+    -s, --short-desc [desc]    - short description for command (one line)
     -c [command-text]          - the text for the command to be added
     --dry-run                  - print messages, but do not modify playbook file
 `))

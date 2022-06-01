@@ -3,10 +3,11 @@
 ScriptHaus is a command line tool that helps you organize your scripts and bash one-liners
 into self-documenting markdown files.
 
-* Stay Organized - Store your bash one-liners in a simple markdown file
-* Save Commands - Easily save a command from history to run or view later
-* Execute - Run and view your commands directly from the command-line
-* Share - Save your files in git and share them with your team
+* **Stay Organized** - Store your bash one-liners in simple markdown playbooks
+* **Save Commands** - Easily save a command from history to run or view later
+* **Execute** - Run your commands and view documentation directly from the command-lin
+* **Never Forget** - Store history by command and playbook, including options, date, cwd, and exitcode
+* **Share** - Save your playbooks in git and share them with your team
 
 ScriptHaus is open source and licensed under the MPLv2.
 
@@ -15,14 +16,16 @@ ScriptHaus is open source and licensed under the MPLv2.
 ScriptHaus can be installed on Mac OS X (recommended) or Linux (experimental)
 using [homebrew](https://brew.sh).
 
-```
+```bash
+# @scripthaus command brew-install
 brew tap scripthaus-dev/scripthaus
 brew install scripthaus
 ```
 
 To install from source (requires go version 1.17+):
 
-```
+```bash
+# @scripthaus command source-install
 git clone https://github.com/scripthaus-dev/scripthaus.git
 cd scripthaus
 go build -o scripthaus cmd/main.go
@@ -30,11 +33,16 @@ go build -o scripthaus cmd/main.go
 
 This will build the `scripthaus` binary in your local directory.  You can then `mv` it to any directory in your path.
 
-To make typing ScriptHaus commands easier, I recommend adding `alias s="scripthaus"` to your `.bash_profile`.
+To make typing ScriptHaus commands easier, I recommend adding aliasing scripthaus to **s**
+
+```bash
+# @scripthaus command make-alias
+echo 'alias s="scripthaus"' >> ~/.bash_profile
+```
 
 ## Playbooks
 
-ScriptHaus allows you to organize your bash one-liners and small Python and JavaScript scripts into Markdown "playbooks".
+ScriptHaus allows you to organize your bash one-liners and small JS and Python scripts into Markdown playbooks.
 
 Commands are contained within playbooks.  You can turn any code fence (with a valid language, e.g. "bash", "python", "js", etc.)
 into a ScriptHaus command by adding the ScriptHaus *directive*:
@@ -134,6 +142,9 @@ Adam also contributed the initial proof of concept code.
 
 ## More Resources
 
-ScriptHaus is under active development.  Please report and bugs here in the GitHub issues tracker.  If you enjoy using
-ScriptHaus, or for any questions, feature requests, feeback, or help, please [Join the ScriptHaus Discord](https://discord.gg/XfvZ334gwU)!
+ScriptHaus is under active development. Please report and bugs here in the GitHub issues tracker.
+For more questions, please see the [FAQ](./FAQ.md).
+
+If you enjoy using ScriptHaus, or for any questions, feature requests, feeback,
+or help, please [Join the ScriptHaus Discord](https://discord.gg/XfvZ334gwU)!
 
