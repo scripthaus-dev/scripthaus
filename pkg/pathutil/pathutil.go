@@ -38,6 +38,13 @@ func (pb *ResolvedPlaybook) OrigShowStr() string {
 	return fmt.Sprintf("'%s' (%s)", pb.OrigName, pb.ResolvedFile)
 }
 
+func (pb *ResolvedPlaybook) PlaybookDir() string {
+	if pb.CanonicalName == "-" {
+		return ""
+	}
+	return path.Dir(pb.ResolvedFile)
+}
+
 // sets overrides for testing
 type Resolver struct {
 	TestMode        bool

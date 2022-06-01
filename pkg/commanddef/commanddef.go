@@ -11,12 +11,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path"
-	"path/filepath"
-	"regexp"
 	"strings"
 
-	"github.com/scripthaus-dev/scripthaus/pkg/base"
 	"github.com/scripthaus-dev/scripthaus/pkg/history"
 	"github.com/scripthaus-dev/scripthaus/pkg/pathutil"
 )
@@ -35,16 +33,35 @@ type CommandDef struct {
 	StartLineNo int // 1-indexed
 
 	// directives
-	RequireEnvVars      []string
+	RawDirectives       []RawDirective
 	DirectivesProcessed bool
+	ChangeDir           string
+	NoLog               bool
 	Warnings            []string
 }
 
-func (cdef *CommandDef) FullScriptName() string {
-	if cdef.Playbook.CanonicalName == "^" || cdef.Playbook.CanonicalName == "." {
-		fmt.Sprintf("%s%s", cdef.Playbook.CanonicalName, cdef.Name)
-	}
-	return fmt.Sprintf("%s::%s", cdef.Playbook.CanonicalName, cdef.Name)
+type RawDirective struct {
+	Type   string
+	Data   string
+	LineNo int
+}
+
+type SpecType struct {
+	// log to history unless NoLog is set (ForceLog is necessary just for combining specs)
+	NoLog    bool
+	ForceLog bool
+
+	ScriptArgs []string
+	ChangeDir  string
+
+	// matches exec.Cmd (each entry is of form key=value)
+	Env []string
+}
+
+// holds a script-name or playbook-file/playbook-script
+type ScriptDef struct {
+	PlaybookFile    string
+	PlaybookCommand string
 }
 
 func (cdef *CommandDef) OrigScriptName() string {
@@ -54,62 +71,23 @@ func (cdef *CommandDef) OrigScriptName() string {
 	return fmt.Sprintf("%s::%s", cdef.Playbook.OrigName, cdef.Name)
 }
 
+func (cdef *CommandDef) FullScriptName() string {
+	if cdef.Playbook.CanonicalName == "^" || cdef.Playbook.CanonicalName == "." {
+		fmt.Sprintf("%s%s", cdef.Playbook.CanonicalName, cdef.Name)
+	}
+	return fmt.Sprintf("%s::%s", cdef.Playbook.CanonicalName, cdef.Name)
+}
+
 type ExecItem struct {
-	SpecialMode    string
 	CmdName        string
+	CmdDef         *CommandDef
 	Cmd            *exec.Cmd
 	FullScriptName string
 	HItem          *history.HistoryItem
-	RunType        string
 }
 
 func (item *ExecItem) CmdShortName() string {
-	if item.RunType == base.RunTypeScript {
-		return item.FullScriptName
-	} else {
-		return fmt.Sprintf("%s %s", item.CmdName, item.FullScriptName)
-	}
-}
-
-type SpecType struct {
-	SpecialMode string // "" (normal), "docker", (or "remote", not yet implemented)
-
-	// log to history unless NoLog is set (ForceLog is necessary just for combining specs)
-	NoLog    bool
-	ForceLog bool
-
-	ScriptArgs []string
-
-	DockerImage string
-	DockerOpts  []string
-
-	// matches exec.Cmd (each entry is of form key=value)
-	Env []string
-}
-
-// holds a script-name or playbook-file/playbook-script
-type ScriptDef struct {
-	// either ScriptFile or PlaybookFile will be set, not both
-	ScriptFile     string
-	PlaybookFile   string
-	PlaybookScript string
-}
-
-func (def ScriptDef) FullScriptName() string {
-	if def.ScriptFile != "" {
-		return def.ScriptFile
-	}
-	if def.PlaybookFile != "" && def.PlaybookScript == "" {
-		return def.PlaybookFile
-	}
-	if def.PlaybookFile != "" && def.PlaybookScript != "" {
-		return fmt.Sprintf("%s/%s", def.PlaybookFile, def.PlaybookScript)
-	}
-	return ""
-}
-
-func (def ScriptDef) IsEmpty() bool {
-	return def.ScriptFile == "" && def.PlaybookFile == ""
+	return fmt.Sprintf("%s %s", item.CmdName, item.CmdDef.OrigScriptName())
 }
 
 type RunOptsType struct {
@@ -136,42 +114,22 @@ func makeOsFileFromString(s string) (*os.File, error) {
 	return reader, nil
 }
 
-func ValidScriptTypes() []string {
-	return []string{"sh", "bash", "python", "python2", "python3", "js", "node"}
-}
-
-func IsValidScriptType(scriptType string) bool {
-	switch scriptType {
-	case "sh", "bash":
-		return true
-
-	case "python", "python2", "python3":
-		return true
-
-	case "js", "node":
-		return true
-
-	default:
-		return false
-	}
-}
-
 func (cdef *CommandDef) buildNormalCommand(ctx context.Context, runSpec SpecType) (*ExecItem, error) {
-	if cdef.Lang == "sh" || cdef.Lang == "bash" {
-		args := append([]string{"-c", cdef.ScriptText, cdef.FullScriptName()}, runSpec.ScriptArgs...)
+	if cdef.Lang == "sh" || cdef.Lang == "bash" || cdef.Lang == "zsh" || cdef.Lang == "tcsh" || cdef.Lang == "ksh" || cdef.Lang == "fish" {
+		args := append([]string{"-c", cdef.ScriptText, cdef.OrigScriptName()}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, cdef.Lang, args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return &ExecItem{CmdName: cdef.Lang, Cmd: execCmd}, nil
+		return &ExecItem{CmdDef: cdef, CmdName: cdef.Lang, Cmd: execCmd}, nil
 	} else if cdef.Lang == "python" || cdef.Lang == "python3" || cdef.Lang == "python2" {
 		args := append([]string{"-c", cdef.ScriptText}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, cdef.Lang, args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return &ExecItem{CmdName: cdef.Lang, Cmd: execCmd}, nil
+		return &ExecItem{CmdDef: cdef, CmdName: cdef.Lang, Cmd: execCmd}, nil
 	} else if cdef.Lang == "node" || cdef.Lang == "js" {
 		args := append([]string{"--eval", cdef.ScriptText, "--"}, runSpec.ScriptArgs...)
 		execCmd := exec.CommandContext(ctx, "node", args...)
 		setStandardCmdOpts(execCmd, runSpec)
-		return &ExecItem{CmdName: "node", Cmd: execCmd}, nil
+		return &ExecItem{CmdDef: cdef, CmdName: "node", Cmd: execCmd}, nil
 	}
 	return nil, fmt.Errorf("invalid command language '%s', not supported", cdef.Lang)
 }
@@ -192,100 +150,43 @@ func combine(rest ...interface{}) []string {
 	return list
 }
 
-func (cdef *CommandDef) buildDockerCommand(ctx context.Context, runSpec SpecType) (*ExecItem, error) {
-	if runSpec.DockerImage == "" {
-		return nil, fmt.Errorf("must supply --docker-image to build docker command")
-	}
-	dockerEnvArgs := getDockerEnvArgs(cdef, runSpec)
-	if cdef.Lang == "sh" || cdef.Lang == "bash" {
-		args := combine("run", runSpec.DockerOpts, dockerEnvArgs, runSpec.DockerImage, cdef.Lang, "-c", cdef.ScriptText, cdef.FullScriptName(), runSpec.ScriptArgs)
-		execCmd := exec.CommandContext(ctx, "docker", args...)
-		setStandardCmdOpts(execCmd, runSpec)
-		cmdName := fmt.Sprintf("docker run %s %s", runSpec.DockerImage, cdef.Lang)
-		return &ExecItem{CmdName: cmdName, Cmd: execCmd}, nil
-	} else if cdef.Lang == "python" || cdef.Lang == "python3" || cdef.Lang == "python2" {
-		args := combine("run", runSpec.DockerOpts, dockerEnvArgs, runSpec.DockerImage, cdef.Lang, "-c", cdef.ScriptText, runSpec.ScriptArgs)
-		execCmd := exec.CommandContext(ctx, "docker", args...)
-		setStandardCmdOpts(execCmd, runSpec)
-		cmdName := fmt.Sprintf("docker run %s %s", runSpec.DockerImage, cdef.Lang)
-		return &ExecItem{CmdName: cmdName, Cmd: execCmd}, nil
-	} else if cdef.Lang == "node" || cdef.Lang == "js" {
-		args := combine("run", runSpec.DockerOpts, dockerEnvArgs, runSpec.DockerImage, "node", "--eval", cdef.ScriptText, "--", runSpec.ScriptArgs)
-		execCmd := exec.CommandContext(ctx, "docker", args...)
-		setStandardCmdOpts(execCmd, runSpec)
-		cmdName := fmt.Sprintf("docker run %s node", runSpec.DockerImage)
-		return &ExecItem{CmdName: cmdName, Cmd: execCmd}, nil
-	}
-	return nil, fmt.Errorf("invalid command language '%s', not supported", cdef.Lang)
-}
-
-var DirectiveRe = regexp.MustCompile("^\\s*(\\S+)(?:\\s+(.*))?$")
-
-// technically env vars can have any character, but in practice, this makes more sense
-var EnvVarRe = regexp.MustCompile("^[a-zA-Z_][a-zA-Z0-9_]*$")
-
-func (cdef *CommandDef) processDirective(dirStr string, lineNo int) error {
-	parts := DirectiveRe.FindStringSubmatch(dirStr)
-	if len(parts) == 0 {
-		warning := fmt.Sprintf("malformed @scripthaus directive '%s' (line %d)", dirStr, lineNo)
-		cdef.Warnings = append(cdef.Warnings, warning)
-		return nil
-	}
-	dirType := parts[1]
-	dirArgs := parts[2]
-	if dirType == "require" {
-		envName := strings.TrimSpace(dirArgs)
-		if !EnvVarRe.MatchString(envName) {
-			warning := fmt.Sprintf("@scripthaus 'require' directive, invalid env var name '%s' (line %d)", envName, lineNo)
-			cdef.Warnings = append(cdef.Warnings, warning)
-			return nil
-		}
-		cdef.RequireEnvVars = append(cdef.RequireEnvVars, envName)
-		return nil
-	} else {
-		warning := fmt.Sprintf("invalid @scripthaus directive '%s' (line %d)", dirType, lineNo)
-		cdef.Warnings = append(cdef.Warnings, warning)
-		return nil
-	}
-}
-
-// returns (warnings, error)
 func (cdef *CommandDef) processDirectives() error {
 	if cdef.DirectivesProcessed {
 		return nil
 	}
 	cdef.DirectivesProcessed = true
-	if cdef.Lang != "sh" && cdef.Lang != "bash" {
-		return nil
-	}
-	lines := strings.Split(cdef.ScriptText, "\n")
-	for idx, line := range lines {
-		if strings.HasPrefix(line, "# @scripthaus ") {
-			err := cdef.processDirective(line[14:], idx+1)
-			if err != nil {
-				return err
+	for _, dir := range cdef.RawDirectives {
+		if dir.Type == "command" {
+			continue // already processed
+		} else if dir.Type == "cd" {
+			dirName := strings.TrimSpace(dir.Data)
+			if dirName == ":playbook" {
+				cdef.ChangeDir = cdef.Playbook.PlaybookDir()
+				continue
 			}
+			if dirName == ":current" {
+				cdef.ChangeDir = ""
+				continue
+			}
+			if strings.HasPrefix(dirName, "~") {
+				osUser, _ := user.Current()
+				if osUser != nil && osUser.HomeDir != "" {
+					cdef.ChangeDir = path.Join(osUser.HomeDir, dirName[1:])
+				}
+				continue
+			}
+			if !path.IsAbs(dirName) {
+				cdef.Warnings = append(cdef.Warnings, fmt.Sprintf("'cd' directive must be absolute, got '%s' (ignoring)", dirName))
+				continue
+			}
+			cdef.ChangeDir = dirName
+		} else if dir.Type == "nolog" {
+			cdef.NoLog = true
+		} else {
+			cdef.Warnings = append(cdef.Warnings, fmt.Sprintf("invalid directive '%s' (ignoring)", dir.Type))
 		}
 	}
 	return nil
-}
-
-func getDockerEnvArgs(cdef *CommandDef, runSpec SpecType) []string {
-	dockerEnvMap := make(map[string]string)
-	for _, envEntry := range runSpec.Env {
-		addToEnvMap(dockerEnvMap, envEntry)
-	}
-	if len(cdef.RequireEnvVars) > 0 {
-		fullEnvMap := makeEnvMap(makeFullEnv(runSpec))
-		for _, envVar := range cdef.RequireEnvVars {
-			dockerEnvMap[envVar] = fullEnvMap[envVar]
-		}
-	}
-	var rtn []string
-	for envName, envVal := range dockerEnvMap {
-		rtn = append(rtn, "-e", fmt.Sprintf("%s=%s", envName, envVal))
-	}
-	return rtn
 }
 
 func addToEnvMap(envMap map[string]string, envEntry string) {
@@ -309,56 +210,40 @@ func makeFullEnv(runSpec SpecType) []string {
 }
 
 func (cdef *CommandDef) CheckCommand(runSpec SpecType) error {
-	cdef.processDirectives()
-	fullEnv := makeFullEnv(runSpec)
-	envMap := makeEnvMap(fullEnv)
-	if len(cdef.RequireEnvVars) > 0 {
-		for _, envName := range cdef.RequireEnvVars {
-			if envMap[envName] == "" {
-				return fmt.Errorf("required variable '%s' is not set", envName)
-			}
-		}
+	err := cdef.processDirectives()
+	if err != nil {
+		return err
 	}
 	return nil
 }
 
 func (cdef *CommandDef) BuildExecCommand(ctx context.Context, runSpec SpecType) (*ExecItem, error) {
-	var err error
-	var execItem *ExecItem
-	if runSpec.SpecialMode == "docker" {
-		execItem, err = cdef.buildDockerCommand(ctx, runSpec)
-		if execItem != nil {
-			execItem.SpecialMode = "docker"
-		}
-	} else {
-		execItem, err = cdef.buildNormalCommand(ctx, runSpec)
-	}
+	execItem, err := cdef.buildNormalCommand(ctx, runSpec)
 	if err != nil {
 		return nil, err
 	}
-	execItem.RunType = base.RunTypePlaybook
-	execItem.FullScriptName = cdef.FullScriptName()
-	execItem.HItem = history.BuildHistoryItem()
-	execItem.HItem.RunType = base.RunTypePlaybook
-	execItem.HItem.ProjectDir = cdef.Playbook.ProjectDir
-	execItem.HItem.PlaybookFile = cdef.Playbook.CanonicalName
-	execItem.HItem.PlaybookScript = cdef.Name
-	execItem.HItem.ScriptType = cdef.Lang
-	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
-	return execItem, nil
-}
-
-func BuildScriptExecCommand(ctx context.Context, scriptPath string, runSpec SpecType) (*ExecItem, error) {
-	if runSpec.SpecialMode == "docker" {
-		return nil, fmt.Errorf("docker mode not supported for bare commands (must use a playbook)")
+	if cdef.ChangeDir != "" {
+		execItem.Cmd.Dir = cdef.ChangeDir
 	}
-	execCmd := exec.CommandContext(ctx, scriptPath, runSpec.ScriptArgs...)
-	setStandardCmdOpts(execCmd, runSpec)
-	execItem := &ExecItem{CmdName: scriptPath, Cmd: execCmd, FullScriptName: scriptPath, RunType: base.RunTypeScript}
-	execItem.HItem = history.BuildHistoryItem()
-	execItem.HItem.RunType = base.RunTypeScript
-	execItem.HItem.ScriptPath, _ = filepath.Abs(scriptPath)
-	execItem.HItem.ScriptFile = path.Base(scriptPath)
-	execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
+	execItem.FullScriptName = cdef.FullScriptName()
+	shouldLog := true
+	if runSpec.NoLog {
+		shouldLog = false
+	} else if runSpec.ForceLog {
+		shouldLog = true
+	} else if cdef.NoLog {
+		shouldLog = false
+	}
+	if shouldLog && !history.HistoryDisabledFile() {
+		execItem.HItem = history.BuildHistoryItem()
+		execItem.HItem.ProjectDir = cdef.Playbook.ProjectDir
+		execItem.HItem.PlaybookFile = cdef.Playbook.CanonicalName
+		execItem.HItem.PlaybookCommand = cdef.Name
+		execItem.HItem.ScriptType = cdef.Lang
+		if cdef.ChangeDir != "" {
+			execItem.HItem.Cwd = cdef.ChangeDir
+		}
+		execItem.HItem.EncodeCmdLine(runSpec.ScriptArgs)
+	}
 	return execItem, nil
 }

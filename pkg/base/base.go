@@ -2,7 +2,7 @@ package base
 
 import "regexp"
 
-const ScriptHausVersion = "0.4.0"
+const ScriptHausVersion = "0.5.0"
 const ScHomeVarName = "SCRIPTHAUS_HOME"
 const HomeVarName = "HOME"
 const DBFileName = "scripthaus.db"
@@ -15,3 +15,23 @@ var PlaybookScriptNameRe = regexp.MustCompile("^[a-zA-Z_][a-zA-Z0-9_/-]*$")
 
 const RunTypePlaybook = "playbook"
 const RunTypeScript = "script"
+
+func ValidScriptTypes() []string {
+	return []string{"sh", "zsh", "tcsh", "bash", "ksh", "fish", "python", "python2", "python3", "js", "node"}
+}
+
+func IsValidScriptType(scriptType string) bool {
+	switch scriptType {
+	case "sh", "bash", "zsh", "tcsh", "ksh", "fish":
+		return true
+
+	case "python", "python2", "python3":
+		return true
+
+	case "js", "node":
+		return true
+
+	default:
+		return false
+	}
+}

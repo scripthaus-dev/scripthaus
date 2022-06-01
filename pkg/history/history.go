@@ -34,13 +34,10 @@ CREATE TABLE history (
     historyid integer PRIMARY KEY,
     ts integer,
     scversion text,
-    runtype text,
-    scriptpath text,
-    scriptfile text,
     projectdir text,
     projectname text,
     playbookfile text,
-    playbookscript text,
+    playbookcommand text,
     scripttype text,
     metadata text,
     cwd text,
@@ -61,25 +58,22 @@ type HistoryQuery struct {
 }
 
 type HistoryItem struct {
-	HistoryId      int64
-	Ts             int64
-	ScVersion      string
-	RunType        string
-	ScriptPath     string // for runtype=script
-	ScriptFile     string // for runtype=script
-	ProjectDir     string // for runtype=playbook, set if playbook file is relative to project root
-	ProjectName    string // for runtype=playbook, set if playbook file is relative to project root
-	PlaybookFile   string // for runtype=playbook, can have prefix "^" or "." (".." will be resolved away)
-	PlaybookScript string // for runtype=playbook
-	ScriptType     string // language
-	Metadata       string
-	Cwd            string
-	HostName       string
-	IpAddr         string
-	SysUser        string
-	CmdLine        string
-	DurationMs     sql.NullInt64 // update
-	ExitCode       sql.NullInt64 // update
+	HistoryId       int64
+	Ts              int64
+	ScVersion       string
+	ProjectDir      string // set if playbook file is relative to project root
+	ProjectName     string // set if playbook file is relative to project root
+	PlaybookFile    string // can have prefix "^" or "." (".." will be resolved away)
+	PlaybookCommand string
+	ScriptType      string // language
+	Metadata        string
+	Cwd             string
+	HostName        string
+	IpAddr          string
+	SysUser         string
+	CmdLine         string
+	DurationMs      sql.NullInt64 // update
+	ExitCode        sql.NullInt64 // update
 }
 
 type HistoryEnv struct {
@@ -126,13 +120,6 @@ func (item *HistoryItem) MarshalJSON() ([]byte, error) {
 	jm["ts"] = item.Ts
 	jm["date"] = time.UnixMilli(item.Ts).Format("2006-01-02T15:04:05")
 	jm["version"] = item.ScVersion
-	jm["runtype"] = item.RunType
-	if item.ScriptPath != "" {
-		jm["scriptpath"] = item.ScriptPath
-	}
-	if item.ScriptFile != "" {
-		jm["scriptfile"] = item.ScriptFile
-	}
 	if item.ProjectDir != "" {
 		jm["projectdir"] = item.ProjectDir
 	}
@@ -142,8 +129,8 @@ func (item *HistoryItem) MarshalJSON() ([]byte, error) {
 	if item.PlaybookFile != "" {
 		jm["playbookfile"] = item.PlaybookFile
 	}
-	if item.PlaybookScript != "" {
-		jm["playbookscript"] = item.PlaybookScript
+	if item.PlaybookCommand != "" {
+		jm["playbookcommand"] = item.PlaybookCommand
 	}
 	jm["scripttype"] = item.ScriptType
 	jm["cwd"] = item.Cwd
@@ -177,22 +164,19 @@ func (item *HistoryItem) CompactString(henv HistoryEnv) string {
 }
 
 func (item *HistoryItem) ScriptString(henv HistoryEnv) string {
-	if item.RunType == base.RunTypePlaybook {
-		if item.PlaybookFile == "^" {
-			return fmt.Sprintf("%s%s", item.PlaybookFile, item.PlaybookScript)
-		}
-		if strings.HasPrefix(item.PlaybookFile, ".") {
-			if henv.ProjectDir != item.ProjectDir {
-				projectDirStr := path.Base(item.ProjectDir)
-				return fmt.Sprintf("[%s]%s::%s", projectDirStr, item.PlaybookFile[1:], item.PlaybookScript)
-			} else {
-				return fmt.Sprintf("%s%s", item.PlaybookFile, item.PlaybookScript)
-			}
-		}
-		return fmt.Sprintf("%s::%s", henv.TruncatePath(item.PlaybookFile), item.PlaybookScript)
-	} else {
-		return henv.TruncatePath(item.ScriptPath)
+	if item.PlaybookFile == "^" {
+		return fmt.Sprintf("%s%s", item.PlaybookFile, item.PlaybookCommand)
 	}
+	if strings.HasPrefix(item.PlaybookFile, ".") {
+		if henv.ProjectDir != item.ProjectDir {
+			projectDirStr := path.Base(item.ProjectDir)
+			return fmt.Sprintf("[%s]%s::%s", projectDirStr, item.PlaybookFile[1:], item.PlaybookCommand)
+		} else {
+			return fmt.Sprintf("%s%s", item.PlaybookFile, item.PlaybookCommand)
+		}
+	}
+	return fmt.Sprintf("%s::%s", henv.TruncatePath(item.PlaybookFile), item.PlaybookCommand)
+
 }
 
 func (item *HistoryItem) FullString(henv HistoryEnv) string {
@@ -280,12 +264,12 @@ func RemoveHistoryItems(removeAll bool, startId int, endId int) (int, error) {
 func InsertHistoryItem(item *HistoryItem) error {
 	sqlStr := `
         INSERT INTO history 
-            (historyid, ts, scversion, runtype, scriptpath, scriptfile,
-             projectdir, projectname, playbookfile, playbookscript, scripttype, 
+            (historyid, ts, scversion,
+             projectdir, projectname, playbookfile, playbookcommand, scripttype, 
              metadata, cwd, hostname, ipaddr, sysuser, cmdline)
         VALUES 
-            (NULL,     :ts,:scversion,:runtype,:scriptpath,:scriptfile,
-            :projectdir,:projectname,:playbookfile,:playbookscript,:scripttype,
+            (NULL,     :ts,:scversion,
+            :projectdir,:projectname,:playbookfile,:playbookcommand,:scripttype,
             :metadata,:cwd,:hostname,:ipaddr,:sysuser,:cmdline)
 `
 	db, err := getDBConn()
@@ -561,6 +545,19 @@ func reverseHistorySlice(arr []*HistoryItem) {
 	for i, j := 0, len(arr)-1; i < j; i, j = i+1, j-1 {
 		arr[i], arr[j] = arr[j], arr[i]
 	}
+}
+
+func HistoryDisabledFile() bool {
+	scHome, _ := pathutil.DefaultResolver().GetScHomeDir()
+	if scHome == "" {
+		return false
+	}
+	disableFile := path.Join(scHome, ".nohistory")
+	finfo, _ := os.Stat(disableFile)
+	if finfo != nil {
+		return true
+	}
+	return false
 }
 
 func QueryHistory(query HistoryQuery) ([]*HistoryItem, error) {
