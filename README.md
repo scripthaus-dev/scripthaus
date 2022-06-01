@@ -73,18 +73,20 @@ hi
 ## Project and Home Directories
 
 Playbooks can *always* be referenced by a relative or absolute path to their markdown files.
-But, ScriptHaus also supports special special files that let access *global*
-or *project* commands easily.
+But, ScriptHaus also supports special syntax that let you access *global*
+or *project* playbooks easily.
 
 **Global** commands are placed in $HOME/scripthaus/scripthaus.md (the directory can be overriden
 by settng the environment variable $SCRIPTHAUS_HOME).  You can access any command in this
-scripthaus.md file as `^[script]`.  Other md files in the ScriptHaus home directory can
-be easily accessed as `^[file.md]::[script]`.
+scripthaus.md file as `^[command]`.  Other md files in the ScriptHaus home directory can
+be accessed as `^[file.md]::[command]`.
 
-**Project** commands are placed in a "scripthaus.md" file at the root of your project directory
-(normally a sibling of your .git directory).  When you are in the project directory, or a sub-directory
-you can access any command in this scripthaus.md file as `.[script]`.  Other md files in the project
-root can be accessed as `.[file.md]::[script]` (note that scripthaus.md *must* also exist).
+**Project** commands are placed in a "scripthaus.md" file at the root
+of your project directory.  When you are in the project directory, or
+a sub-directory you can access any command in this scripthaus.md file
+as `.[command]`.  Other md files in the project root can be accessed as
+`.[file.md]::[script]` (note that scripthaus.md *must* also exist to
+mark the project root).
 
 ## Running a Command
 
@@ -107,10 +109,10 @@ scripthaus run build.md::test
 You can always edit the markdown files by hand.  That's the recommended way of converting your old text notes with commands
 into a runnable ScriptHaus playbook.
 
-ScriptHaus also allows you to add a command directly from the command-line, which is useful when you want to capture a
-command line from your bash history.
+ScriptHaus also allows you to add a command directly from the command prompt, which is useful when you want to capture a
+command from your shell history.
 
-Here's the simplest add command to add your last bash command from history ("!!" refers to the last typed command).
+Here's a simple add command to add your last bash command from history ("!!" refers to the last typed command).
 Note that for safety, "test.md" must already exist (scripthaus add will not create a new file).  If you need to
 create a new file, just `touch ./test.md` before running "scripthaus add".  You can also use "^" and "." to add
 to your global or project md files.
@@ -128,7 +130,7 @@ To list all the commands in a playbook run:
 scripthaus show [playbook]
 ```
 
-To show the raw markdown for any command in a playbook (including the command text) just run:
+To show the raw markdown for any command in a playbook (including the command text) run:
 
 ```
 scripthaus show [playbook]::[script]
