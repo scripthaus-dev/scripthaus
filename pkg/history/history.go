@@ -61,9 +61,9 @@ type HistoryItem struct {
 	HistoryId       int64
 	Ts              int64
 	ScVersion       string
-	ProjectDir      string // for set if playbook file is relative to project root
-	ProjectName     string // for set if playbook file is relative to project root
-	PlaybookFile    string // for can have prefix "^" or "." (".." will be resolved away)
+	ProjectDir      string // set if playbook file is relative to project root
+	ProjectName     string // set if playbook file is relative to project root
+	PlaybookFile    string // can have prefix "^" or "." (".." will be resolved away)
 	PlaybookCommand string
 	ScriptType      string // language
 	Metadata        string

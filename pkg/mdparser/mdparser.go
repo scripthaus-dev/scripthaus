@@ -112,28 +112,20 @@ func blockStartIndex(block ast.Node, mdSource []byte) (int, int) {
 	return mdIdx, findLineNo(mdIdx, mdSource)
 }
 
+var directiveRe = regexp.MustCompile("^(?:#|//)\\s+@scripthaus\\s+(\\S+)(?:\\s+(.*))?")
+
 func ExtractRawDirectives(codeText string) []commanddef.RawDirective {
 	var rtn []commanddef.RawDirective
 	lines := strings.Split(codeText, "\n")
 	for idx, line := range lines {
-		var rawDirStr string
-		if strings.HasPrefix(line, "# @scripthaus ") {
-			rawDirStr = line[14:]
-		} else if strings.HasPrefix(line, "// @scripthaus ") {
-			rawDirStr = line[15:]
-		}
-		rawDirStr = strings.TrimSpace(rawDirStr)
-		if rawDirStr == "" {
+		m := directiveRe.FindStringSubmatch(line)
+		if m == nil {
 			continue
 		}
-		dirFields := strings.SplitN(rawDirStr, " ", 2)
-
 		rawDir := commanddef.RawDirective{}
 		rawDir.LineNo = idx + 1
-		rawDir.Type = strings.TrimSpace(dirFields[0])
-		if len(dirFields) == 2 {
-			rawDir.Data = strings.TrimSpace(dirFields[1])
-		}
+		rawDir.Type = m[1]
+		rawDir.Data = strings.TrimSpace(m[2])
 		rtn = append(rtn, rawDir)
 	}
 	return rtn
