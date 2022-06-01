@@ -35,3 +35,10 @@ func IsValidScriptType(scriptType string) bool {
 		return false
 	}
 }
+
+func GetCommentString(scriptType string) string {
+	if scriptType == "js" || scriptType == "node" {
+		return "//"
+	}
+	return "#"
+}
