@@ -1,7 +1,8 @@
- # ScriptHaus
-
-ScriptHaus is a command line tool that helps you organize your scripts and bash one-liners
-into self-documenting markdown files.
+# ScriptHaus
+ 
+ScriptHaus lets you run bash, Python, and JS snippets from your Markdown files directly
+from the command-line. It can turn any Markdown file (including your README.md or
+BUILD.md) into a command-line tool, complete with command-line help and documentation.
 
 * **Stay Organized** - Store your bash one-liners in simple markdown playbooks
 * **Save Commands** - Easily save a command from history to run or view later
@@ -42,14 +43,15 @@ echo 'alias s="scripthaus"' >> ~/.bash_profile
 
 ## Playbooks
 
-ScriptHaus allows you to organize your bash one-liners and small JS and Python scripts into Markdown playbooks.
-
-Commands are contained within playbooks.  You can turn any code fence (with a valid language, e.g. "bash", "python", "js", etc.)
-into a ScriptHaus command by adding the ScriptHaus *directive*:
+Any markdown file can be a ScriptHaus playbook.  Commands are found by searching for any code fence
+(with a valid language, e.g. "bash", "python", "js", etc.) that have the special ScriptHaus directive:
 
 ```
 # @scripthaus command [name] - [short-description]
 ```
+
+You can easily annotate an existing markdown file (README.md or BUILD.md) or create a new playbook with
+scripts or one-liners that you want to document and be able to access easily.
 
 Any markdown that comes before the command, up until you hit a level 1-4 header, thematic break, or another code fence will
 become the command's documentation.
@@ -69,6 +71,24 @@ Assuming that markdown was placed into a file named "commands.md" you can run:
 > scripthaus run commands.md::hi
 hi
 ```
+
+To see the documentation and code block, run:
+````
+> scripthaus show commands.md
+commands.md
+  commands.md::hi - a simple command that just echos "hi" to the console
+  
+> scripthaus show commands.md::hi
+[^scripthaus] show './commands.md::hi'
+
+This is the simplest ScriptHaus command.
+The markdown before the command will turn into help text.
+
+```bash
+# @scripthaus command hi - a simple command that just echos "hi" to the console
+echo hi
+```
+````
 
 ## Project and Home Directories
 
