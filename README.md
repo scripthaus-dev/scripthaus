@@ -29,7 +29,7 @@ To install from source (requires go version 1.17+):
 # @scripthaus command source-install
 git clone https://github.com/scripthaus-dev/scripthaus.git
 cd scripthaus
-go build -o scripthaus cmd/main.go
+CGO_ENABLED=1 go build -o scripthaus cmd/main.go
 ```
 
 This will build the `scripthaus` binary in your local directory.  You can then `mv` it to any directory in your path.
