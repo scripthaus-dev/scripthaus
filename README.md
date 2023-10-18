@@ -164,9 +164,6 @@ Adam also contributed the initial proof of concept code.
 
 ## More Resources
 
-ScriptHaus is under active development. Please report and bugs here in the GitHub issues tracker.
+Please report and bugs here in the GitHub issues tracker.
 For more questions, please see the [FAQ](./FAQ.md).
-
-If you enjoy using ScriptHaus, or for any questions, feature requests, feeback,
-or help, please [Join the ScriptHaus Discord](https://discord.gg/XfvZ334gwU)!
 

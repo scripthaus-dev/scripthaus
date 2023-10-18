@@ -135,11 +135,3 @@ Touch the file `.nohistory` in your ScriptHaus home directory.
 
 No, not yet.  I'm working on a bash completion script.
 
-### How to report a bug or make a feature request?
-
-Contact me on [Discord](https://discord.gg/XfvZ334gwU) or submit a Github issue.
-
-### Can I contribute?
-
-Yes, definitely!  Please contact me on [Discord](https://discord.gg/XfvZ334gwU) or
-submit a pull-request.
