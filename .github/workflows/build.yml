@@ -12,7 +12,6 @@ jobs:
               with:
                 go-version: ${{env.GO_VERSION}}
                 cache-dependency-path: go.sum
-            - run: |
-                go mod download
-                CGO_ENABLED=1 go build -o scripthaus cmd/main.go
-            - run: scripthaus
+            - run: go mod download
+            - run: CGO_ENABLED=1 go build -o scripthaus cmd/main.go
+            - run: ./scripthaus
