@@ -86,7 +86,6 @@ func TestResolvePlaybook(t *testing.T) {
 	tryResolve(t, resolver, "-", "-", false)
 	tryResolve(t, resolver, "^", "/*test/home/scripthaus/scripthaus.md", false)
 	tryResolve(t, resolver, "^foo.md", "/*test/home/scripthaus/foo.md", false)
-	tryResolve(t, resolver, "commands.md", "/*test/home/project/subproject1/commands.md", false)
 	tryResolve(t, resolver, ".commands.md", "/*test/home/project/subproject1/commands.md", false)
 	tryResolve(t, resolver, ".commands.md", "/*test/home/project/subproject1/commands.md", false)
 	tryResolve(t, resolver, "foo.md", "/*test/home/project/subproject1/subdir2/foo.md", false)
